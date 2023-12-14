@@ -84,6 +84,7 @@ pallet-movie = { version = "4.0.0-dev", default-features = false, path = "../pal
 pallet-ranking-list = { version = "4.0.0-dev", default-features = false, path = "../pallets/ranking-list" }
 pallet-social-space = { version = "4.0.0-dev", default-features = false, path = "../pallets/social-space" }
 pallet-stat-tracker = { version = "4.0.0-dev", default-features = false, path = "../pallets/stat-tracker" }
+pallet-tags = { version = "4.0.0-dev", default-features = false, path = "../pallets/tags" }
 pallet-template = { version = "4.0.0-dev", default-features = false, path = "../pallets/template" }
 
 [build-dependencies]

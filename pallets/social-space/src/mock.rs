@@ -1,5 +1,8 @@
-use crate as pallet_template;
-use frame_support::traits::{ConstU16, ConstU64};
+use crate as pallet_social_space;
+use frame_support::{
+	parameter_types,
+	traits::{ConstU16, ConstU64},
+};
 use frame_system as system;
 use sp_core::H256;
 use sp_runtime::{
@@ -18,7 +21,7 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system,
-		TemplateModule: pallet_template,
+		SocialSpaceModule: pallet_social_space,
 	}
 );
 
@@ -27,8 +30,8 @@ impl system::Config for Test {
 	type BlockWeights = ();
 	type BlockLength = ();
 	type DbWeight = ();
-	type RuntimeOrigin = RuntimeOrigin;
-	type RuntimeCall = RuntimeCall;
+	type Origin = Origin;
+	type Call = Call;
 	type Index = u64;
 	type BlockNumber = u64;
 	type Hash = H256;
@@ -36,7 +39,7 @@ impl system::Config for Test {
 	type AccountId = u64;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
-	type RuntimeEvent = RuntimeEvent;
+	type Event = Event;
 	type BlockHashCount = ConstU64<250>;
 	type Version = ();
 	type PalletInfo = PalletInfo;
@@ -49,9 +52,22 @@ impl system::Config for Test {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
-impl pallet_template::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
+
+parameter_types!{
+	pub const SocialStringLimit: u32 = 250;
+	pub const MaxFollowers: u32 = 10000;
 }
+
+impl pallet_social_space::Config for Test {
+	type Event = Event;
+	type StringLimit = SocialStringLimit;
+	type MaxFollowers = MaxFollowers;
+	type PostId = u32;
+	type CommentId = u32;
+}
+
+
+
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {

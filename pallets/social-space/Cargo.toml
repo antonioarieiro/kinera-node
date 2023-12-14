@@ -25,6 +25,7 @@ sp-core = { version = "6.0.0", default-features = false, git = "https://github.c
 sp-io = { version = "6.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
 sp-runtime = { version = "6.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
 
+pallet-stat-tracker = {path = '../stat-tracker', default-features = false, version = '4.0.0-dev'}
 
 [features]
 default = ["std"]

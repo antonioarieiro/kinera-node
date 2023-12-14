@@ -1,4 +1,4 @@
-use crate as pallet_template;
+use crate as pallet_tags;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU16, ConstU64},
@@ -21,7 +21,7 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-		TemplateModule: pallet_template::{Pallet, Call, Storage, Event<T>},
+		TagsModule: pallet_tags::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -52,8 +52,24 @@ impl system::Config for Test {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
-impl pallet_template::Config for Test {
+
+parameter_types! {
+	pub const MaxTags: u32 = 10000;
+	pub const TagStringLimit: u32 = 100;
+	pub const ContentStringLimit: u32 = 100000;
+	pub const CategoryStringLimit: u32 = 100;
+	pub const MaxContentWithTag: u32 = 100000;
+}
+
+impl pallet_tags::Config for Test {
 	type Event = Event;
+
+	type MaxTags = MaxTags;
+	type MaxContentWithTag = MaxContentWithTag;
+
+	type ContentStringLimit = ContentStringLimit;
+	type TagStringLimit = TagStringLimit;
+	type CategoryStringLimit = CategoryStringLimit;
 }
 
 // Build genesis storage according to the mock runtime.

@@ -1998,10 +1998,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -3794,6 +3792,7 @@ dependencies = [
  "pallet-staking-reward-curve",
  "pallet-stat-tracker",
  "pallet-sudo",
+ "pallet-tags",
  "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -4125,7 +4124,10 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "pallet-movie",
+ "pallet-stat-tracker",
+ "pallet-tags",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -4202,7 +4204,9 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "pallet-stat-tracker",
+ "pallet-tags",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -4219,6 +4223,8 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-stat-tracker",
+ "pallet-tags",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -4321,19 +4327,16 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "getrandom 0.2.8",
- "pallet-democracy",
+ "pallet-balances",
  "pallet-movie",
- "pallet-session",
- "pallet-staking",
- "pallet-utility",
+ "pallet-stat-tracker",
+ "pallet-tags",
  "parity-scale-codec",
  "scale-info",
  "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4380,6 +4383,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-stat-tracker",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -4449,6 +4453,21 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std 4.0.0 (git+https://github.com/paritytech/substrate.git?branch=polkadot-v0.9.25)",
+]
+
+[[package]]
+name = "pallet-tags"
+version = "4.0.0-dev"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -7780,7 +7799,6 @@ dependencies = [
  "jsonrpsee",
  "node-primitives",
  "node-template-runtime",
- "pallet-festival",
  "pallet-im-online",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",

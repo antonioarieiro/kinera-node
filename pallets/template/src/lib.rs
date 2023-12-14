@@ -46,6 +46,59 @@ pub mod pallet {
 		//* Structs *//
 
 
+
+
+	//** Genesis **//
+        
+		// #[pallet::genesis_config]
+		// pub struct GenesisConfig<T: Config> {
+		// 	pub category_to_tag_map: Vec<(
+		// 		BoundedVec<u8, T::CategoryStringLimit>,
+		// 		BoundedVec<BoundedVec<u8, T::TagStringLimit>, T::MaxTags>
+		// 	)>
+		// }
+
+
+		// #[cfg(feature = "std")]
+		// impl<T: Config> Default for GenesisConfig<T> {
+		// 	fn default() -> Self {
+		// 		Self { 
+		// 			category_to_tag_map: Default::default() 
+		// 		}
+		// 	}
+		// }
+
+
+		// #[pallet::genesis_build]
+		// impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		// 	fn build(&self) {
+		// 		for (category_id, bounded_tag_id_list) in &self.category_to_tag_map {
+					
+		// 			// initialize the category
+		// 			let category = Category {
+		// 				tag_list: bounded_tag_id_list.clone(),
+		// 			};
+
+		// 			<Categories<T>>::insert(category_id.clone(), category);
+
+
+		// 			// create an entry for each of the category's tags and bind them together
+		// 			let tag_description: BoundedVec<u8, T::DescStringLimit>
+		// 				= TryInto::try_into(Vec::new()).unwrap();
+
+		// 			for tag_id in bounded_tag_id_list {
+		// 				let tag = Tag {
+		// 					parent_category: category_id.clone(),
+		// 					description: tag_description.clone(),
+		// 				};
+
+		// 				<Tags<T>>::insert(tag_id, tag);
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+
 	//** Storage **//
 
 		#[pallet::storage]

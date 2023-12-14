@@ -2,7 +2,6 @@
 	// Ranking lists order content based on votes and provide staking
 	// based on locked funds.
 	// new era > find staking differences > reward top 1000 films
-	//TODO implement conviction multiplier
 	//TODO add APY to governance
 	//TODO improve Deadlines
 	//TODO optimize
@@ -33,6 +32,7 @@ pub mod pallet {
 				pallet_prelude::*,
 				traits::{
 					Currency,
+					ReservableCurrency,
 					ExistenceRequirement::AllowDeath,
 				},
 				PalletId,
@@ -58,9 +58,12 @@ pub mod pallet {
 			use scale_info::TypeInfo;
 			use codec::{MaxEncodedLen};
 			use core::convert::TryInto;
-			// use sp_std::{
-			// 	collections::btree_map::BTreeMap,
-			// };
+			
+			use pallet_tags::{
+				CategoryId as CategoryId,
+				TagId as TagId,
+			};
+
 
 		//* Config *//
 			#[pallet::pallet]
@@ -68,8 +71,12 @@ pub mod pallet {
 			pub struct Pallet<T>(_);
 
 			#[pallet::config]
-			pub trait Config: frame_system::Config + pallet_movie::Config + pallet_staking::Config + pallet_session::Config + pallet_utility::Config {
+			pub trait Config: frame_system::Config + 
+			pallet_movie::Config + pallet_tags::Config + pallet_stat_tracker::Config {
+			// + pallet_staking::Config + pallet_session::Config + pallet_utility::Config {
 				type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+				// type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+				
 				// how many ranking lists can be solved per block
 				type MaxListsPerBlock: Get<u32>;
 				type MaxVotersPerList: Get<u32>;
@@ -88,9 +95,11 @@ pub mod pallet {
 	//** Types **//	
 
 		//* Types *//
-			type BalanceOf<T> =
-				<<T as pallet_staking::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+			// type BalanceOf<T> =
+			// 	<<T as pallet_staking::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 			
+			type BalanceOf<T> = <<T as pallet_stat_tracker::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 			pub type RankingListId = u32;	
 			
 		//* Constants *//
@@ -120,34 +129,27 @@ pub mod pallet {
 				Locked6x,
 			}
 
-			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug,TypeInfo,MaxEncodedLen)]
-			pub enum Category{
-				Youtube,
-				Vimeo,
-				Cinema,
-			} 
-
 
 		//* Structs *//
 
-			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]//MaxEncodedLen
-			pub struct RankingList<BoundedString, RankingListStatus, Category, BlockNumber, MovieList, VoteMap> {
-				pub name:BoundedString,
-				pub description:BoundedString,
-				pub status:RankingListStatus,
-				pub category: Category,
+			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo, MaxEncodedLen)]
+			pub struct RankingList<BoundedString, RankingListStatus, BlockNumber, MovieList, VoteMap, CategoryTagList> {
+				pub name: BoundedString,
+				pub description: BoundedString,
+				pub status: RankingListStatus,
 				pub list_duration: BlockNumber,
 				pub list_deadline: BlockNumber,
 				pub movies_in_list: MovieList, // this becomes a sorted winner list after the "list_deadline" block
 				pub votes_by_user: VoteMap,
+				pub categories_and_tags: CategoryTagList,
 			}
 
-			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]//MaxEncodedLen
+			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]
 			pub struct VotesForMovie<VotingList> {
 				pub votes: VotingList,
 			}
 
-			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]//MaxEncodedLen
+			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]
 			pub struct RankingVote<MovieId, BalanceOf> {
 				pub movie_id: MovieId,
 				pub locked_amount: BalanceOf,
@@ -155,15 +157,100 @@ pub mod pallet {
 			}
 
 
-			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]//MaxEncodedLen
+			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]
 			pub struct Deadlines<BoundedRankingLists> {
 				pub list_deadlines: BoundedRankingLists,
 			}
 
-			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]//MaxEncodedLen
+			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo,MaxEncodedLen)]
 			pub struct UserVoteList<RankingListId> {
 				pub user_vote_list: RankingListId,
 			}
+
+		// 	name: BoundedString,
+		// 	pub description: BoundedString,
+		// 	pub status: RankingListStatus,
+		// 	pub list_duration: BlockNumber,
+		// 	pub list_deadline: BlockNumber,
+		// 	pub movies_in_list: MovieList, // this becomes a sorted winner list after the "list_deadline" block
+		// 	pub votes_by_user: VoteMap,
+		// 	pub categories_and_tags: CategoryTagList,
+
+	
+    //** Genesis **//
+        
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub default_ranking_lists: Vec<(
+			BoundedVec<u8, T::RankingStringLimit>,
+			BoundedVec<u8, T::RankingStringLimit>,
+			T::BlockNumber,
+			BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
+		)>
+	}
+
+	
+
+
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			Self { 
+				default_ranking_lists: Default::default() 
+			}
+		}
+	}
+
+
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		fn build(&self) {
+			
+			let category_type: pallet_tags::CategoryType<T> =
+				TryInto::try_into("Ranking List".as_bytes()
+				.to_vec()).map_err(|_|Error::<T>::BadMetadata).unwrap();
+
+			for (name, description, duration, categories_and_tags) in &self.default_ranking_lists {
+				
+				let ranking_list_id =
+					NextRankingListId::<T>::try_mutate(|id| -> Result<RankingListId, DispatchError> {
+						let current_id = *id;
+						*id = id
+							.checked_add(One::one())
+							.ok_or(Error::<T>::Overflow)?;
+						Ok(current_id)
+					}).unwrap();
+				
+				let movies_in_list: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList> =
+					TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata).unwrap();
+				let current_block = <frame_system::Pallet<T>>::block_number();
+				
+				let list_deadline_block = current_block.checked_add(&duration).ok_or(Error::<T>::Overflow).unwrap();
+				Pallet::<T>::create_list_deadline(ranking_list_id, list_deadline_block).unwrap();
+			
+				let votes_by_user: BoundedBTreeMap<
+					T::AccountId,
+					BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>,
+					T::MaxVotersPerList> 
+				= BoundedBTreeMap::new();
+
+				let ranking_list = RankingList {
+					name: name.clone(),
+					description: description.clone(),
+					status:RankingListStatus::Ongoing,
+					list_deadline: list_deadline_block.clone(),
+					list_duration: duration.clone(),
+					movies_in_list: movies_in_list.clone(),
+					votes_by_user: votes_by_user.clone(),
+					categories_and_tags: categories_and_tags.clone(),
+				};
+				<RankingLists<T>>::insert(ranking_list_id.clone(), ranking_list.clone());
+			}
+		}
+	}
+
+
+
 
 
 
@@ -190,7 +277,6 @@ pub mod pallet {
 			RankingList<
 				BoundedVec<u8, T::RankingStringLimit>,
 				RankingListStatus,
-				Category,
 				T::BlockNumber,
 				BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>,
 				BoundedBTreeMap<
@@ -198,6 +284,7 @@ pub mod pallet {
 					BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>, 
 					T::MaxVotersPerList
 				>,
+				BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 			>
 		>;
 
@@ -243,9 +330,6 @@ pub mod pallet {
 
 
 
-
-
-
 	//** Events **//
 
 		#[pallet::event]
@@ -265,8 +349,8 @@ pub mod pallet {
 			Overflow,
 			Underflow,
 			BadMetadata,
+			
 			NotEnoughBalance,
-
 			MovieIdOverflow,
 			MovieAlreadyInList,
 			InvalidVote,
@@ -274,6 +358,7 @@ pub mod pallet {
 			MovieNotInRankingList,
 			StakingWithNoValue,
 			ListDurationTooShort,
+			WalletStatsRegistryRequired,
 		}
 
 
@@ -287,7 +372,7 @@ pub mod pallet {
             }
 
             fn on_finalize(now: T::BlockNumber) {
-                Self::resolve_festivals_deadline(now);
+                Self::do_resolve_festivals_deadline(now);
             }
 		}
 
@@ -304,14 +389,34 @@ pub mod pallet {
 				name:Vec<u8>,
 				description:Vec<u8>,
 				list_duration: T::BlockNumber,
-				category:Category,
+				category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 			) -> DispatchResult {
 
-				let _who = ensure_signed(origin)?;
+				let who = ensure_signed(origin)?;
+				// ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who)?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
+
+				// validate category and tag data
+				let category_type: pallet_tags::CategoryType<T>
+                    = TryInto::try_into("Ranking List".as_bytes().to_vec()).map_err(|_|Error::<T>::BadMetadata)?;
+                
+				pallet_tags::Pallet::<T>::validate_tag_data(
+					category_type.clone(), 
+					category_tag_list.clone()
+				)?;
 
 				// create ranking list data
-				let ranking_list_id = Self::next_ranking_list_id();
-				NextRankingListId::<T>::put(ranking_list_id + 1);
+				let ranking_list_id =
+					NextRankingListId::<T>::try_mutate(|id| -> Result<RankingListId, DispatchError> {
+						let current_id = *id;
+						*id = id
+							.checked_add(One::one())
+							.ok_or(Error::<T>::Overflow)?;
+						Ok(current_id)
+					}).unwrap();
+				
 				let bounded_name: BoundedVec<u8, T::RankingStringLimit> =
 					TryInto::try_into(name).map_err(|_| Error::<T>::BadMetadata)?;
 				let bounded_description: BoundedVec<u8, T::RankingStringLimit> =
@@ -340,13 +445,26 @@ pub mod pallet {
 					name: bounded_name,
 					description: bounded_description,
 					status:RankingListStatus::Ongoing,
-					category: category,
 					list_deadline: list_deadline_block,
 					list_duration: list_duration,
 					movies_in_list: movies_in_list,
 					votes_by_user: votes_by_user,
+					categories_and_tags: category_tag_list.clone(),
 				};
 				RankingLists::<T>::insert(ranking_list_id.clone(), ranking_list);
+
+				// parse the u32 type into a BoundedVec<u8, T::ContentStringLimit
+				let encoded: Vec<u8> = ranking_list_id.encode();
+				let bounded_content_id: BoundedVec<u8, T::ContentStringLimit> = 
+					TryInto::try_into(encoded).map_err(|_|Error::<T>::BadMetadata)?;
+
+				pallet_tags::Pallet::<T>::update_tag_data(
+					category_type, 
+					category_tag_list,
+					bounded_content_id,
+				)?;
+ 
+
 
 				// finalize call
 				Self::deposit_event(Event::RankingListCreated(ranking_list_id));
@@ -389,6 +507,7 @@ pub mod pallet {
 				list_id: RankingListId,
 				source: pallet_movie::ExternalSource,
 				movie_link: BoundedVec<u8, T::LinkStringLimit>,
+				category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 			) -> DispatchResult {
 
 				let who = ensure_signed(origin)?;
@@ -399,7 +518,8 @@ pub mod pallet {
                     pallet_movie::Pallet::<T>::do_create_external_movie(
 						&who.clone(),
 						source,
-						movie_link.clone()
+						movie_link.clone(),
+						category_tag_list.clone()
 					)?;
                 }
 			
@@ -467,13 +587,13 @@ pub mod pallet {
 						// create a new vote list, with the user's vote in it and add it
 						let mut user_votes: BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList> =
 							TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata)?;
-						user_votes.try_push(vote);
-						list.votes_by_user.try_insert(who.clone(), user_votes);
+						user_votes.try_push(vote).unwrap();
+						list.votes_by_user.try_insert(who.clone(), user_votes).unwrap();
 					}
 					// the voter has voted in the list, add a new vote
 					else {
-						let mut unwrapped_votes = votes.unwrap();
-						unwrapped_votes.try_push(vote);
+						let unwrapped_votes = votes.unwrap();
+						unwrapped_votes.try_push(vote).unwrap();
 					}
 					
 					Ok(())
@@ -534,7 +654,7 @@ pub mod pallet {
 				// Concludes the ranking list and determines the winners. This is triggered by hooks.
 				// This takes into account the total voting power (tokens * conviction) of each movie.
 				// Users who vote in the top ranked movies will receive rewards based on their total tokens locked.
-				pub fn resolve_festivals_deadline(
+				pub fn do_resolve_festivals_deadline(
 					block_deadline: T::BlockNumber
 				) -> DispatchResult {
 				
@@ -548,11 +668,12 @@ pub mod pallet {
 
 							// update the ranking list's sorted movies & determine the new deadline
 							RankingLists::<T>::try_mutate(list_id, |ranking_list| -> DispatchResult {
-								// let list = ranking_list.as_mut().ok_or(Error::<T>::BadMetadata)?;
-								// list.movies_in_list = sorted_ranking_list;
-								// list.list_deadline =
-								// 	<frame_system::Pallet<T>>::block_number().checked_add(&list.list_duration).ok_or(Error::<T>::Overflow)?;
-								// Self::create_list_deadline(list_id.clone(), list.list_deadline)?;
+								let list = ranking_list.as_mut().ok_or(Error::<T>::BadMetadata)?;
+								
+								list.movies_in_list = sorted_ranking_list;
+								list.list_deadline =
+									<frame_system::Pallet<T>>::block_number().checked_add(&list.list_duration).ok_or(Error::<T>::Overflow)?;
+								Self::create_list_deadline(list_id.clone(), list.list_deadline)?;
 								Ok(())
 							})?;
 						}
@@ -612,15 +733,12 @@ pub mod pallet {
 							.ok_or(Error::<T>::Overflow)?;
 					
 						// transfer the calculated amount to the user
-						ensure!(
-							T::Currency::transfer(
-								&Self::account_id(), 
-								&account_id.clone(),
-								tokens_return.clone(), 
-								AllowDeath
-							) == Ok(()),
-							Error::<T>::NotEnoughBalance
+						//TODO check if working
+						T::Currency::deposit_into_existing(
+							&account_id, 
+							tokens_return.clone(), 
 						);
+						pallet_stat_tracker::Pallet::<T>::update_tokens_festival(account_id.clone(), tokens_return, false)?;
 					}
 
 					// swap the id for the weight so the elements can be conveniently sorted

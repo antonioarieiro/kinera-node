@@ -995,37 +995,28 @@ impl pallet_template::Config for Runtime {
 // Festival
 
 parameter_types! {
-	pub const NameStringLimit: u32 = 100;
+	pub const WalletNameStringLimit: u32 = 50;
 	pub const DescStringLimit: u32 = 1000;
-	pub const CategoryStringLimit: u32 = 100;
-	pub const TagStringLimit: u32 = 100;
 	pub const MaxMoviesInFest: u32 = 1000;
 	pub const MaxOwnedFestivals: u32 = 10;
-	pub const MinFesBlockDuration: u32 = 1000;
+	pub const MinFesBlockDuration: u32 = 100;
 	pub const MaxFestivalsPerBlock: u32 = 500;
-	pub const MaxTags: u32 = 1000;
 	pub const MaxVotes: u32 = 10000;
-	pub const FestBlockSafetyMargin: u32 = 50;
+	pub const FestBlockSafetyMargin: u32 = 10;
 	pub const PalletFestivalId: PalletId = PalletId(*b"FesStash");
 }
 
 impl pallet_festival::Config for Runtime{
     type Event = Event;
-	type Currency = Balances;
+	// type Currency = Balances;
 
 	type FestivalId = u32;
-	type CategoryId = u32;
                 
-	type NameStringLimit = NameStringLimit;
-	type DescStringLimit = DescStringLimit;
-	type CategoryStringLimit = CategoryStringLimit;
-	type TagStringLimit = TagStringLimit;
 	type MaxMoviesInFest = MaxMoviesInFest;
 	type MaxOwnedFestivals = MaxOwnedFestivals;
 	type MinFesBlockDuration = MinFesBlockDuration;
 	type MaxFestivalsPerBlock = MaxFestivalsPerBlock;
-	type MaxTags = MaxTags;
-	type MaxVotes = DescStringLimit;
+	type MaxVotes = MaxVotes;
 	type FestBlockSafetyMargin = FestBlockSafetyMargin;
 
 	type PalletId = PalletFestivalId;
@@ -1038,8 +1029,7 @@ parameter_types! {
 	pub const MaxReportsByModerator: u32 = 3;
 	pub const TotalTierOneModerators: u32 = 3;
 	pub const MaxReportsByTier: u32 = 23;
-	pub const MinimumTokensForModeration: u32 = 100;
-	pub const MovieCollateral: u32 = 30;
+	pub const MinimumTokensForModeration: u32 = 10000;
 	pub const PalletModerationId: PalletId = PalletId(*b"ModStash");
 }
 
@@ -1056,7 +1046,6 @@ impl pallet_moderation::Config for Runtime{
 	type MinimumTokensForModeration = MinimumTokensForModeration;
 	type MovieCollateral = MovieCollateral;
 
-	type Currency = Balances;
 	type PalletId = PalletModerationId;
 }
 
@@ -1066,15 +1055,17 @@ impl pallet_moderation::Config for Runtime{
 
 parameter_types! {
 	pub const MovieStringLimit: u32 = 50;
-	pub const LinkStringLimit: u32 = 1000;
-	//TODO movie link limit
+	pub const LinkStringLimit: u32 = 10000;
+	pub const MovieCollateral: u32 = 30;
 }
 
 impl pallet_movie::Config for Runtime{
     type Event = Event;
+	
     type InternalMovieId = u32;
     type StringLimit = MovieStringLimit;
     type LinkStringLimit = LinkStringLimit;
+    type MovieCollateral = MovieCollateral;
 }
 
 
@@ -1088,7 +1079,7 @@ parameter_types!{
 	pub const MaxMoviesInList: u32 = 100000;
 	pub const MinimumListDuration: u32 = 3600; // six hours in blocks
 	pub const MaxVotersPerList: u32 = 10000000;
-	pub const MaxListsPerBlock: u32 = 10;
+	pub const MaxListsPerBlock: u32 = 50;
 }
 
 impl pallet_ranking_list::Config for Runtime {
@@ -1106,16 +1097,21 @@ impl pallet_ranking_list::Config for Runtime {
 // Social Space
 
 parameter_types!{
-	pub const SocialStringLimit: u32 = 250;
 	pub const MaxFollowers: u32 = 10000;
+	pub const CommentStringLimit: u32 = 300;
+	pub const MaxPostsPerSpace: u32 = 1000000;
 }
 
 impl pallet_social_space::Config for Runtime {
 	type Event = Event;
-	type StringLimit = SocialStringLimit;
 	type MaxFollowers = MaxFollowers;
 	type PostId = u32;
 	type CommentId = u32;
+
+	type DescStringLimit = DescStringLimit;
+	type LinkStringLimit = LinkStringLimit;
+	type CommentStringLimit = CommentStringLimit;
+	type MaxPostsPerSpace = MaxPostsPerSpace;
 }
 
 
@@ -1126,9 +1122,35 @@ parameter_types! {
 	pub const DefaultReputation: u32 = 100;
 }
 
-impl pallet_stat_tracker::Config for Runtime{
+impl pallet_stat_tracker::Config for Runtime {
     type Event = Event;
+	type Currency = Balances;
+	
 	type DefaultReputation = DefaultReputation;
+	type NameStringLimit = WalletNameStringLimit;
+}
+
+
+
+// Tags
+
+parameter_types! {
+	pub const MaxTags: u32 = 10000;
+	pub const ContentStringLimit: u32 = 1000;
+	pub const CategoryStringLimit: u32 = 100;
+	pub const TagStringLimit: u32 = 100;
+	pub const MaxContentWithTag: u32 = 100000;
+}
+
+impl pallet_tags::Config for Runtime {
+    type Event = Event;
+
+	type MaxTags = MaxTags;
+	type MaxContentWithTag = MaxContentWithTag;
+
+	type ContentStringLimit = ContentStringLimit;
+	type CategoryStringLimit = CategoryStringLimit;
+	type TagStringLimit = TagStringLimit;
 }
 
 
@@ -1182,6 +1204,7 @@ construct_runtime!(
 		RankingListModule: pallet_ranking_list,
 		SocialSpaceModule: pallet_social_space,
 		StatTrackerModule: pallet_stat_tracker,
+		TagsModule: pallet_tags,
 		TemplateModule: pallet_template,
 	}
 );

@@ -1,9 +1,34 @@
 //** About **//
 	// Information regarding the pallet
     // note_1: The reason the festival duration storages are seperate is to facilitate block iteration during hooks.
-    //TODO organize errors
-    //TODO implemenmt tag functionalities
+    //TODO ensure movies exist
+    //TODO TODO extract private festivals form the create festival ext
     //TODO finish block assignments (tag TODO #Block)
+    //TODO check if sorting a list and calling dedup is faster than calling retain
+    //TODO check if still registered in stat tracker at the start of a festival
+    //TODO check dependencis on pallet_movie for balances
+    //TODO change min_entry name to min_vote_cost
+    //TODO check if min_entry vote price is higher than 0
+    //TODO check if no duplicate movies in extrinsic param when adding movies
+    //TODO check
+    // let stakers = initial_authorities
+    // .iter()
+    // .map(|x| (x.0.clone(), x.1.clone(), STASH, StakerStatus::Validator))
+    // .chain(initial_nominators.iter().map(|x| {
+    //     use rand::{seq::SliceRandom, Rng};
+    //     let limit = (MaxNominations::get() as usize).min(initial_authorities.len());
+    //     let count = rng.gen::<usize>() % limit;
+    //     let nominations = initial_authorities
+    //         .as_slice()
+    //         .choose_multiple(&mut rng, count)
+    //         .into_iter()
+    //         .map(|choice| choice.0.clone())
+    //         .collect::<Vec<_>>();
+    //     (x.clone(), x.clone(), STASH, StakerStatus::Nominator(nominations))
+    // }))
+    // .collect::<Vec<_>>();
+    
+
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -48,6 +73,13 @@ pub mod pallet {
             use scale_info::TypeInfo;
             use sp_std::{collections::btree_map::BTreeMap,vec};
             use pallet_movie;
+            use pallet_tags;
+
+            // why does this need to be a crate?
+            use crate::pallet::pallet_tags::{
+                CategoryId as CategoryId,
+                TagId as TagId
+            };
 
 
         //* Config *//
@@ -57,22 +89,17 @@ pub mod pallet {
             pub struct Pallet<T>(_);
 
             #[pallet::config]
-            pub trait Config: frame_system::Config + pallet_movie::Config {
+            pub trait Config: frame_system::Config 
+            + pallet_movie::Config + pallet_tags::Config + pallet_stat_tracker::Config {
                 type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-                type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+                // type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
             
                 type FestivalId: Member + Parameter + AtLeast32BitUnsigned + Default + Copy + MaxEncodedLen;
-                type CategoryId: Member + Parameter + AtLeast32BitUnsigned + Default + Copy + MaxEncodedLen;
                 
-                type NameStringLimit: Get<u32>;
-                type DescStringLimit: Get<u32>;
-                type CategoryStringLimit: Get<u32>;
-                type TagStringLimit: Get<u32>;
                 type MaxMoviesInFest: Get<u32>;
                 type MaxOwnedFestivals: Get<u32>;
                 type MinFesBlockDuration: Get<u32>;
                 type MaxFestivalsPerBlock: Get<u32>;
-                type MaxTags: Get<u32>;
                 type MaxVotes: Get<u32>;
                 
                 type FestBlockSafetyMargin: Get<u32>;
@@ -87,32 +114,39 @@ pub mod pallet {
     
         //* Types *//
             
-            type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-        
+            type BalanceOf<T> = <<T as pallet_stat_tracker::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
         //* Constants *//
         //* Enums *//
             
+            // Keeps track of the status of a festival.
+            // AwaitingActivation -> The festival must be manually activated by the owner to become "Active".
+            // AwaitingStartBlock -> The festival has been activated and is awaiting the start block to become "Active".
+            // Active -> The festival is currently active and can be voted on.
+            // Finished -> The festival has concluded.
             #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
             pub enum FestivalStatus {
-                New,
-                Approved,
-                Declined,
+                AwaitingActivation,
+                AwaitingStartBlock,
                 Active,
-                Inactive,
+                Finished,
             }
         
         //* Structs *//
 
             #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-            pub struct Festival<FestivalId, BoundedNameString, BoundedDescString, FilmsInFest, FestivalStatus, BalanceOf, VoteList> {
+            pub struct Festival<FestivalId, AccountId, BoundedNameString, BoundedDescString, FestivalStatus, BalanceOf, VoteList, CategoryTagList, MoviesInFest> {
                 pub id: FestivalId,
+                pub owner: AccountId,
                 pub name: BoundedNameString,
                 pub description: BoundedDescString,
-                pub films: FilmsInFest,
                 pub status: FestivalStatus,
                 pub min_entry: BalanceOf,
                 pub total_lockup: BalanceOf,
                 pub vote_list: VoteList,
+                pub categories_and_tags: CategoryTagList,
+                pub internal_movies: MoviesInFest,
+                pub external_movies: MoviesInFest,
             }
 
             #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
@@ -122,29 +156,21 @@ pub mod pallet {
             }
 
             #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-            pub struct Category<BoundedTagList> {
-                pub tag_list: BoundedTagList,
-            }
-
-            #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-            #[scale_info(skip_type_params(T))]
-            pub struct Tag<BoundedCategoryString, BoundedTagString> {
-                pub parent_category: BoundedCategoryString,
-                pub description: BoundedTagString,
-            }
-
-            #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
             pub struct Vote<AccountId, MovieId, Balance> {
                 pub voter: AccountId,
                 pub vote_for: MovieId,
                 pub amount: Balance,
             }
 
-            // #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-            // pub struct CuratingVote<BoundedString,BalanceOf> {
-            //     pub vote: BoundedString,
-            //     pub bet: BalanceOf,
-            // }
+            #[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+            pub struct WalletData<BoundedFestivals> {
+                pub all_festivals: BoundedFestivals,
+                pub awaiting_activation_festivals: BoundedFestivals,
+                pub awaiting_start_festivals: BoundedFestivals,
+                pub active_festivals: BoundedFestivals,
+                pub finished_festivals: BoundedFestivals,
+                pub won_festivals: BoundedFestivals,
+            }
 
 
 
@@ -170,24 +196,18 @@ pub mod pallet {
                     Blake2_128Concat, T::FestivalId, 
                     Festival<
                         T::FestivalId, 
-                        BoundedVec<u8, T::NameStringLimit>, 
-                        BoundedVec<u8, T::DescStringLimit>, 
-                        BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>, 
+                        T::AccountId,
+                        BoundedVec<u8, T::NameStringLimit>, //BoundedNameString
+                        BoundedVec<u8, T::NameStringLimit>, //TODO change NameStringLimit to Desc, currently BoundedDescString
                         FestivalStatus,
-                        BalanceOf<T>,
-                        BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxMoviesInFest>,
+                        BalanceOf<T>, //BalanceOf
+                        BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxMoviesInFest>, //VoteList
+                        BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>, //CategoryTagList
+                        BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>, //MoviesInFest
                     >,
                     OptionQuery
                 >;
 
-            #[pallet::storage]
-            #[pallet::getter(fn get_owned_festivals)]
-            pub(super) type FestivalOwners<T: Config> = 
-                StorageMap<
-                    _,
-                    Blake2_128Concat, T::AccountId,
-                    BoundedVec<T::FestivalId, T::MaxOwnedFestivals>,
-                >;
 
         //* Block Assignments *// 
 
@@ -202,85 +222,20 @@ pub mod pallet {
                     BlockAssignment<BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>>,
                 >;
 
-        //* Category *// 
-            
+
+
+        //* Wallet Data *// 
+
+            // Information regarding a wallet's address
             #[pallet::storage]
-            #[pallet::getter(fn get_category)]
-            pub type Categories <T: Config> = 
+            #[pallet::getter(fn get_wallet_festival_data)]
+            pub(super) type WalletFestivalData<T: Config> = 
                 StorageMap<
-                    _, 
-                    Blake2_128Concat, BoundedVec<u8, T::CategoryStringLimit>, 
-                    Category<
-                        BoundedVec<BoundedVec<u8, T::TagStringLimit>, T::MaxTags>, 
-                    >,
-                    OptionQuery
-                >;
-            
-            #[pallet::storage]
-            #[pallet::getter(fn get_tag)]
-            pub type Tags <T: Config> = 
-                StorageMap<
-                    _, 
-                    Blake2_128Concat, BoundedVec<u8, T::TagStringLimit>, 
-                    Tag<
-                        BoundedVec<u8, T::CategoryStringLimit>, 
-                        BoundedVec<u8, T::DescStringLimit>, 
-                    >,
-                    OptionQuery
+                    _,
+                    Blake2_128Concat, T::AccountId,
+                    WalletData<BoundedVec<T::FestivalId, T::MaxOwnedFestivals>>,
                 >;
 
-
-
-
-    //** Genesis **//
-        
-        #[pallet::genesis_config]
-        pub struct GenesisConfig<T: Config> {
-            pub category_to_tag_map: Vec<(
-                BoundedVec<u8, T::CategoryStringLimit>,
-                BoundedVec<BoundedVec<u8, T::TagStringLimit>, T::MaxTags>
-            )>
-        }
-
-
-        #[cfg(feature = "std")]
-        impl<T: Config> Default for GenesisConfig<T> {
-            fn default() -> Self {
-                Self { 
-                    category_to_tag_map: Default::default() 
-                }
-            }
-        }
-
-
-        #[pallet::genesis_build]
-        impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
-            fn build(&self) {
-                for (category_id, bounded_tag_id_list) in &self.category_to_tag_map {
-                    
-                    // initialize the category
-                    let category = Category {
-                        tag_list: bounded_tag_id_list.clone(),
-                    };
-
-                    <Categories<T>>::insert(category_id.clone(), category);
-
-
-                    // create an entry for each of the category's tags and bind them together
-                    let tag_description: BoundedVec<u8, T::DescStringLimit>
-                        = TryInto::try_into(Vec::new()).unwrap();
-
-                    for tag_id in bounded_tag_id_list {
-                        let tag = Tag {
-                            parent_category: category_id.clone(),
-                            description: tag_description.clone(),
-                        };
-
-                        <Tags<T>>::insert(tag_id, tag);
-                    }
-                }
-            }
-        }
 
 
 
@@ -291,9 +246,12 @@ pub mod pallet {
         pub enum Event<T: Config> {
             FestivalCreated(T::AccountId, T::FestivalId),
             MovieAddedToFestival(T::FestivalId, BoundedVec<u8, T::LinkStringLimit>, T::AccountId),
+            MoviesAddedToFestival(T::FestivalId, T::AccountId),
             VotedForMovieInFestival(T::FestivalId, BoundedVec<u8, T::LinkStringLimit>, T::AccountId),
-            CategoryCreated(T::AccountId, BoundedVec<u8, T::CategoryStringLimit>),
-            TagCreated(T::AccountId, BoundedVec<u8, T::TagStringLimit>, BoundedVec<u8, T::CategoryStringLimit>),
+            FestivalHasBegun(T::FestivalId),
+            FestivalHasEnded(T::FestivalId), //TODO update to list  
+            // FestivalHasEnded(T::FestivalId, BoundedVec<T::AccountId, T::LinkStringLimit>) 
+            FestivalActivated(T::FestivalId, T::AccountId)
         }
 
 
@@ -306,15 +264,13 @@ pub mod pallet {
             Underflow,
             BadMetadata,
             InsufficientBalance,
+            WalletStatsRegistryRequired,
             
             PastStartDate,
             FestivalPeriodTooShort,
-
-            NonexistentCategory,
-            CategoryAlreadyExists,
-
-            TagAlreadyExists,
-            NonexistentTag,
+            NoFestivalAdminAccess,
+            NotEnoughMoviesInFestival,
+            NotAwaitingActivation,
 
             MovieAlreadyInFestival,
             MovieNotInFestival,
@@ -322,6 +278,7 @@ pub mod pallet {
 
             NonexistentFestival,
             FestivalNotActive,
+            FestivalNotAcceptingNewMovies,
 
             VoteAmountTooLow,
 
@@ -354,119 +311,387 @@ pub mod pallet {
         #[pallet::call]
         impl<T: Config> Pallet<T> {
 
+            // Create a new public festival.
+            // #[pallet::weight(10_000)]
+            // pub fn create_public_festival(
+            //     origin: OriginFor<T>,
+            //     bounded_name: BoundedVec<u8, T::NameStringLimit>,
+            //     bounded_description: BoundedVec<u8, T::NameStringLimit>, //TODO improve
+            //     min_entry: BalanceOf<T>,
+            //     start_block: T::BlockNumber,
+            //     end_block: T::BlockNumber,
+            //     category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
+            // ) -> DispatchResult {
+                
+            //     let who = ensure_signed(origin)?;
+			// 	// ensure!(
+			// 	// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+			// 	// 	Error::<T>::WalletStatsRegistryRequired,
+			// 	// );
+                
+            //     // validate category and tag
+            //     let category_type: pallet_tags::CategoryType<T>
+            //         = TryInto::try_into("Festival".as_bytes().to_vec())
+            //         .map_err(|_|Error::<T>::BadMetadata)?;
+            //     pallet_tags::Pallet::<T>::validate_tag_data(
+            //         category_type.clone(), 
+            //         category_tag_list.clone()
+            //     )?;
+
+            //     // ensure the block periods are valid
+            //     let safe_start_time = start_block
+            //         .checked_sub(&T::BlockNumber::from(T::FestBlockSafetyMargin::get()))
+            //         .ok_or(Error::<T>::InvalidBlockPeriod)?;
+            //     ensure!(
+            //         frame_system::Pallet::<T>::block_number() < safe_start_time, 
+            //         Error::<T>::PastStartDate
+            //     );
+            //     ensure!(
+            //         end_block-safe_start_time >= T::BlockNumber::from(T::FestBlockSafetyMargin::get()), 
+            //         Error::<T>::FestivalPeriodTooShort
+            //     );
+
+            //     // create the festival & bind the owner & validated blocks to it
+            //     let festival_id = Self::do_create_festival(
+            //         who.clone(),
+            //         bounded_name, bounded_description, min_entry,
+            //         category_tag_list.clone(), FestivalStatus::New
+            //     )?;
+            //     Self::do_bind_owners_to_festival(who.clone(), festival_id)?;
+            //     Self::do_bind_duration_to_festival(festival_id, start_block, end_block)?;
+
+            //     // parse the festival_id into a BoundedVec<u8, T::ContentStringLimit>
+            //     let encoded: Vec<u8> = festival_id.encode();
+            //     let bounded_content_id: BoundedVec<u8, T::ContentStringLimit> = 
+            //         TryInto::try_into(encoded).map_err(|_|Error::<T>::BadMetadata)?;
+
+            //     // update tags with the encoded bounded_content_id
+            //     pallet_tags::Pallet::<T>::update_tag_data(
+            //         category_type, 
+            //         category_tag_list,
+            //         bounded_content_id,
+            //     )?;
+
+            //     Self::deposit_event(Event::FestivalCreated(who.clone(), festival_id));
+            //     Ok(())
+            // }
+
+
+
+            // Create a new private festival. It needs to be manually activated by the
+            // owner when desired. Therefore, it does not have any block parameters, and
+            // the festival is not bound to any blocks until the festival is activated.
             #[pallet::weight(10_000)]
             pub fn create_festival(
                 origin: OriginFor<T>,
                 bounded_name: BoundedVec<u8, T::NameStringLimit>,
-                _bounded_description: BoundedVec<u8, T::DescStringLimit>,
-                //TODO categories:Vec<T::CategoryId>,
+                bounded_description: BoundedVec<u8, T::NameStringLimit>, //TODO improve
                 min_entry: BalanceOf<T>,
-                start_block: T::BlockNumber,
-                end_block: T::BlockNumber,
+                category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> DispatchResult {
                 
                 let who = ensure_signed(origin)?;
-                Self::do_validate_festival(start_block, end_block)?;
+				// ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
                 
-                let festival_id = Self::do_create_festival(bounded_name, _bounded_description, min_entry)?;
+                // validate category and tag
+                let category_type: pallet_tags::CategoryType<T>
+                    = TryInto::try_into("Festival".as_bytes().to_vec())
+                    .map_err(|_|Error::<T>::BadMetadata)?;
+                pallet_tags::Pallet::<T>::validate_tag_data(
+                    category_type.clone(), 
+                    category_tag_list.clone()
+                )?;
+
+                // create the festival & bind the owner to it
+                let festival_id = Self::do_create_festival(
+                    who.clone(),
+                    bounded_name, bounded_description, min_entry,
+                    category_tag_list.clone(), FestivalStatus::AwaitingActivation
+                )?;
                 Self::do_bind_owners_to_festival(who.clone(), festival_id)?;
-                Self::do_bind_duration_to_festival(festival_id, start_block, end_block)?;
+                
+                // parse the festival_id into a BoundedVec<u8, T::ContentStringLimit>
+                let encoded: Vec<u8> = festival_id.encode();
+                let bounded_content_id: BoundedVec<u8, T::ContentStringLimit> = 
+                    TryInto::try_into(encoded).map_err(|_|Error::<T>::BadMetadata)?;
+
+                // update tags with the encoded bounded_content_id
+                pallet_tags::Pallet::<T>::update_tag_data(
+                    category_type, 
+                    category_tag_list,
+                    bounded_content_id,
+                )?;
 
                 Self::deposit_event(Event::FestivalCreated(who.clone(), festival_id));
                 Ok(())
             }
 
-            
+
+            // Activate a festival with status "AwaitingActivation" if you are its owner. Festivals
+            // are considered private before their activation. After activating the festival, a new
+            // start and end block is supplied, as when starting a regular festival. The start block
+            // must be at least FestBlockSafetyMargin blocks away from the current block.
             #[pallet::weight(10_000)]
-            pub fn create_category(
-                origin: OriginFor<T>,
-                bounded_name: BoundedVec<u8, T::CategoryStringLimit>,
-            ) -> DispatchResult {
-                
-                let who = ensure_signed(origin)?;
-                Self::do_validate_category(bounded_name.clone())?;
-
-                Self::do_create_category(bounded_name.clone())?;
-
-                Self::deposit_event(Event::CategoryCreated(who.clone(), bounded_name));
-                Ok(())
-            }
-
-            
-            #[pallet::weight(10_000)]
-            pub fn create_tag(
-                origin: OriginFor<T>,
-                bounded_tag: BoundedVec<u8, T::TagStringLimit>,
-                bounded_category: BoundedVec<u8, T::CategoryStringLimit>,
-                bounded_description: BoundedVec<u8, T::DescStringLimit>,
-            ) -> DispatchResult {
-                
-                let who = ensure_signed(origin)?;
-                Self::do_validate_tag(bounded_tag.clone(), bounded_category.clone())?; //TODO validate description
-
-                Self::do_create_tag(bounded_tag.clone(), bounded_category.clone(), bounded_description.clone())?;
-
-                Self::deposit_event(Event::TagCreated(who.clone(), bounded_tag, bounded_category));
-                Ok(())
-            }
-        
-        
-            #[pallet::weight(10_000)]
-            pub fn add_internal_movie_to_festival(
+            pub fn activate_festival(
                 origin: OriginFor<T>,
                 festival_id: T::FestivalId,
-                movie_id: BoundedVec<u8, T::LinkStringLimit>,
+                start_block: T::BlockNumber,
+                end_block: T::BlockNumber,
+            )-> DispatchResult{
+                
+                let who = ensure_signed(origin)?;
+                
+                // mutate the festival from storage
+                Festivals::<T>::try_mutate_exists( festival_id.clone(),|fes| -> DispatchResult{
+                    let festival = fes.as_mut().ok_or(Error::<T>::BadMetadata)?;
+
+                    // ensure the owner owns the festival 
+                    ensure!(
+                        festival.owner == who.clone(),
+                        Error::<T>::NoFestivalAdminAccess
+                    );
+                    // ensure the festival has at least 2 movies
+                    ensure!(
+                        festival.internal_movies.len() > 1 || festival.external_movies.len() > 1,
+                        Error::<T>::NotEnoughMoviesInFestival
+                    );
+                    // ensure the status is AwaitingActivation
+                    ensure!(
+                        festival.status == FestivalStatus::AwaitingActivation,
+                        Error::<T>::NotAwaitingActivation
+                    );
+
+                    // ensure the block periods are valid
+                    let safe_start_time = start_block
+                        .checked_sub(&T::BlockNumber::from(T::FestBlockSafetyMargin::get()))
+                        .ok_or(Error::<T>::InvalidBlockPeriod)?;
+                    ensure!(
+                        frame_system::Pallet::<T>::block_number() < safe_start_time, 
+                        Error::<T>::PastStartDate
+                    );
+                    ensure!(
+                        end_block-safe_start_time >= T::BlockNumber::from(T::MinFesBlockDuration::get()), 
+                        Error::<T>::FestivalPeriodTooShort
+                    );
+
+                    // update the festival ownership status
+                    WalletFestivalData::<T>::try_mutate_exists( who.clone(), |wal_data| -> DispatchResult{
+                        let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                        
+                        //filter the movie from the awaiting activation list
+                        wallet_data.awaiting_activation_festivals.retain(
+                            |fes_id| 
+                            fes_id != &festival_id.clone()
+                                
+                        );
+                        wallet_data.awaiting_start_festivals.try_push(festival_id).unwrap();
+                        
+                        Ok(())
+                    })?;
+
+                    //bind the duration to the festival
+                    Self::do_bind_duration_to_festival(festival_id, start_block, end_block)?;
+                    festival.status = FestivalStatus::AwaitingStartBlock;
+
+                    Self::deposit_event(Event::FestivalActivated(festival_id, who));
+                    Ok(())
+                })?;
+
+                Ok(())
+            }
+
+
+
+
+            // Activate a festival with status "AwaitingActivation" if you are its owner. Festivals
+            // are considered private before their activation. After activating the z
+            //  block is supplied, and the start block is automatically set to the minumum "FestBlockSafetyMargin"
+            // The start block must be at least FestBlockSafetyMargin blocks away from the current block.
+            #[pallet::weight(10_000)]
+            pub fn activate_festival_asap(
+                origin: OriginFor<T>,
+                festival_id: T::FestivalId,
+                end_block: T::BlockNumber,
+            )-> DispatchResult{
+                
+                let who = ensure_signed(origin)?;
+                
+                // mutate the festival from storage
+                Festivals::<T>::try_mutate_exists( festival_id,|fes| -> DispatchResult{
+                    let festival = fes.as_mut().ok_or(Error::<T>::BadMetadata)?;
+
+                    // ensure the owner owns the festival 
+                    ensure!(
+                        festival.owner == who.clone(),
+                        Error::<T>::NoFestivalAdminAccess
+                    );
+                    // ensure the festival has at least 2 movies
+                    ensure!(
+                        festival.internal_movies.len() > 1 || festival.external_movies.len() > 1,
+                        Error::<T>::NotEnoughMoviesInFestival
+                    );
+                    // ensure the status is AwaitingActivation
+                    ensure!(
+                        festival.status == FestivalStatus::AwaitingActivation,
+                        Error::<T>::NotAwaitingActivation
+                    );
+
+                    // ensure the block periods are valid
+                    let safe_start_time = 
+                        frame_system::Pallet::<T>::block_number()
+                        .checked_add(&T::BlockNumber::from(T::FestBlockSafetyMargin::get()))
+                        .ok_or(Error::<T>::InvalidBlockPeriod)?;
+                    ensure!(
+                        end_block-safe_start_time >= T::BlockNumber::from(T::MinFesBlockDuration::get()), 
+                        Error::<T>::FestivalPeriodTooShort
+                    );
+
+                    // update the festival ownership status
+                    WalletFestivalData::<T>::try_mutate_exists( who.clone(), |wal_data| -> DispatchResult{
+                        let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                        
+                        //filter the movie from the awaiting activation list
+                        wallet_data.awaiting_activation_festivals.retain(
+                            |fes_id| 
+                            fes_id != &festival_id.clone()
+                                
+                        );
+                        wallet_data.awaiting_start_festivals.try_push(festival_id).unwrap();
+                        
+                        Ok(())
+                    })?;
+
+                    //bind the duration to the festival
+                    Self::do_bind_duration_to_festival(festival_id, safe_start_time, end_block)?;
+                    festival.status = FestivalStatus::AwaitingStartBlock;
+                
+                    Self::deposit_event(Event::FestivalActivated(festival_id, who));
+                    Ok(())
+                })?;
+
+                Ok(())
+            }
+            
+            
+
+            // Add a list of internal movies and a list of external movies to the festival.
+            // Duplicate movies are filtered and only unique movies are inserted. 
+            // Only works if the festival has not begun (i.e. its status is "New").           
+            #[pallet::weight(10_000)]
+            pub fn add_movies_to_fest(
+                origin: OriginFor<T>,
+                festival_id: T::FestivalId,
+                mut internal_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
+                mut external_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
             )-> DispatchResult{
             
                 let who = ensure_signed(origin)?;
+                // ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
 
-                Self::do_add_internal_movie_to_festival(festival_id, movie_id.clone())?;
+                Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
+                    let fes = festival.as_mut().ok_or(Error::<T>::BadMetadata)?;
+                    ensure!(
+                        fes.status == FestivalStatus::AwaitingActivation,
+                        Error::<T>::FestivalNotAcceptingNewMovies
+                    );
 
-                Self::deposit_event(Event::MovieAddedToFestival(festival_id, movie_id, who.clone()));
+                    // filter out movies already in the festival
+                    internal_movie_ids.retain(
+                        |movie_id| 
+                        !fes.internal_movies.contains(movie_id)
+                    );
+                    external_movie_ids.retain(
+                        |movie_id| 
+                        !fes.external_movies.contains(movie_id)
+                    );
+
+                    // add the movies to the festival
+                    for internal_movie in internal_movie_ids {
+                        fes.internal_movies.try_push(internal_movie);
+                    }
+
+                    // add the movies to the festival
+                    for external_movie in external_movie_ids {
+                        fes.external_movies.try_push(external_movie);
+                    }
+                    
+                    Ok(())
+                })?;
+
+                Self::deposit_event(Event::MoviesAddedToFestival(festival_id, who.clone()));
                 Ok(())
             }
-        
+            
+
+
+            // Remove a list of internal movies and a list of external movies from the festival.
+            // Only works if the festival has not begun (i.e. its status is "New").
             #[pallet::weight(10_000)]
-            pub fn add_external_movie_to_festival(
+            pub fn remove_movies_from_fest(
                 origin: OriginFor<T>,
                 festival_id: T::FestivalId,
-                source: pallet_movie::ExternalSource,
-                movie_link: BoundedVec<u8, T::LinkStringLimit>,
+                internal_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
+                external_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
             )-> DispatchResult{
             
                 let who = ensure_signed(origin)?;
+                // ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
+               
+                Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
+                    let fes = festival.as_mut().ok_or(Error::<T>::BadMetadata)?;
+                    ensure!(
+                        fes.status == FestivalStatus::AwaitingActivation,
+                        Error::<T>::FestivalNotAcceptingNewMovies
+                    );
 
-                let movie_exists = pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_link.clone())?;
-                if !movie_exists {
-                    pallet_movie::Pallet::<T>::do_create_external_movie(
-                        &who.clone(), 
-                        source.clone(),
-                        movie_link.clone()
-                    )?;
-                }
+                    //filter only the movies not in internal_movie_ids
+                    fes.internal_movies.retain(
+                        |movie_id| 
+                        !internal_movie_ids.contains(movie_id)
+                    );
 
-                Self::do_add_external_movie_to_festival(festival_id, movie_link.clone())?;
+                    //filter only the movies not in external_movie_ids
+                    fes.external_movies.retain(
+                        |movie_id| 
+                        !external_movie_ids.contains(movie_id)
+                    );
+                    
+                    Ok(())
+                })?;
 
-                Self::deposit_event(Event::MovieAddedToFestival(festival_id, movie_link, who.clone()));
+                Self::deposit_event(Event::MoviesAddedToFestival(festival_id, who.clone()));
                 Ok(())
             }
+        
 
 
+            // Cast a vote for a movie included in the festival.
             #[pallet::weight(10_000)]
             pub fn vote_for_movie_in_festival(
                 origin: OriginFor<T>,
                 festival_id: T::FestivalId,
                 movie_id : BoundedVec<u8, T::LinkStringLimit>,
-                amount : BalanceOf<T>,
             )-> DispatchResult{
                 
                 let who = ensure_signed(origin)?;
 
-                Self::do_vote_for_movie_in_festival(&who,festival_id, movie_id.clone(), amount)?;
+                Self::do_vote_for_movie_in_festival(&who,festival_id, movie_id.clone())?;
 
                 Self::deposit_event(Event::VotedForMovieInFestival(festival_id, movie_id, who.clone()));
                 Ok(())
             }
+        
+
+            
 
         }
 
@@ -477,30 +702,17 @@ pub mod pallet {
         impl<T: Config> Pallet<T> {
 
             //* Festival *//
-            
-                pub fn do_validate_festival(
-                    start_block : T::BlockNumber,
-                    end_block: T::BlockNumber
-                ) -> Result<(), DispatchError> {
-
-                    //TODO add more validations
-                    //TODO verificar datas - alex
-                    let safe_start_time = start_block
-                        .checked_sub(&T::BlockNumber::from(T::FestBlockSafetyMargin::get()))
-                        .ok_or(Error::<T>::InvalidBlockPeriod)?;
-                
-                    ensure!(frame_system::Pallet::<T>::block_number() < safe_start_time, Error::<T>::PastStartDate);
-                    ensure!(end_block-safe_start_time >= T::BlockNumber::from(T::FestBlockSafetyMargin::get()), Error::<T>::FestivalPeriodTooShort);
-            
-                    Ok(())
-                }
 
                 pub fn do_create_festival(
+                    who: T::AccountId,
                     name: BoundedVec<u8, T::NameStringLimit>,
-                    description: BoundedVec<u8, T::DescStringLimit>,
+                    description: BoundedVec<u8, T::NameStringLimit>, //TODO improve
                     min_ticket_price: BalanceOf<T>,
+                    category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
+                    status: FestivalStatus,
                 ) -> Result<T::FestivalId, DispatchError> {
 
+                    //TODO put everything inside this try_mutate
                     let festival_id =
                         NextFestivalId::<T>::try_mutate(|id| -> Result<T::FestivalId, DispatchError> {
                             let current_id = *id;
@@ -521,13 +733,16 @@ pub mod pallet {
                     
                     let festival = Festival {
                         id: festival_id.clone(),
+                        owner: who,
                         name: name,
                         description: description,
-                        films: bounded_film_list,
-                        status: FestivalStatus::New,
+                        internal_movies: bounded_film_list.clone(),
+                        external_movies: bounded_film_list,
+                        status: status,
                         min_entry: min_ticket_price,
                         total_lockup: zero_lockup,
                         vote_list: bounded_vote_list,
+                        categories_and_tags: category_tag_list,
                     };
 
                     Festivals::<T>::insert(festival_id, festival);
@@ -543,12 +758,36 @@ pub mod pallet {
 
                     //TODO check contains
                     //TODO add new entry
-
-                    let mut bounded_festival_list: BoundedVec<T::FestivalId, T::MaxOwnedFestivals>
-                        = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
-                    bounded_festival_list.try_push(festival_id).unwrap();
                         
-                    FestivalOwners::<T>::insert(who, bounded_festival_list);
+
+                    if !WalletFestivalData::<T>::contains_key(who.clone()) {
+
+                        let mut bounded_festival_list: BoundedVec<T::FestivalId, T::MaxOwnedFestivals>
+                            = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
+                        bounded_festival_list.try_push(festival_id).unwrap();
+                        let bounded_empty_festival_list: BoundedVec<T::FestivalId, T::MaxOwnedFestivals>
+                            = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
+
+                        let new_data = WalletData {
+                            all_festivals: bounded_festival_list.clone(),
+                            awaiting_activation_festivals: bounded_festival_list,
+                            awaiting_start_festivals: bounded_empty_festival_list.clone(),
+                            active_festivals: bounded_empty_festival_list.clone(),
+                            finished_festivals: bounded_empty_festival_list.clone(),
+                            won_festivals: bounded_empty_festival_list,
+                        };
+                        WalletFestivalData::<T>::insert(who.clone(), new_data);
+
+                    }
+                    else {
+                        WalletFestivalData::<T>::try_mutate( who.clone(), |festival_data| -> DispatchResult{
+                            let fes_data = festival_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                            fes_data.all_festivals.try_push(festival_id).unwrap();
+                            fes_data.awaiting_activation_festivals.try_push(festival_id).unwrap();
+                            
+                            Ok(())
+                        })?;
+                    }
 
                     Ok(())
                 }
@@ -565,17 +804,16 @@ pub mod pallet {
                     //TODO add new entry
 
 
-                    // handle the festival's starting block
+                    // check if any entries exist for the start block and push the movie if true
                     if BlockAssignments::<T>::contains_key(start_block) == true {
-					
                         let mut start_assignments = BlockAssignments::<T>::try_get(start_block).unwrap(); //TODO optimize
                         start_assignments.to_start.try_push(festival_id).unwrap();
                     }
+                    // create a new entry for the start block if none exist and then push the movie
                     else {
                         let mut bounded_start_list: BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>
                             = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                         bounded_start_list.try_push(festival_id).unwrap();
-                        
                         let mut bounded_end_list: BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>
                             = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                         
@@ -587,16 +825,15 @@ pub mod pallet {
                     }
 
                     
-                    // handle the festival's ending block
+                    // check if any entries exist for the end block and push the movie if true
                     if BlockAssignments::<T>::contains_key(end_block) == true {
-					
                         let mut end_assignments = BlockAssignments::<T>::try_get(end_block).unwrap(); //TODO optimize
                         end_assignments.to_end.try_push(festival_id).unwrap();
                     }
+                    // create a new entry for the end block if none exist and then push the movie
                     else {
                         let mut bounded_start_list: BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>
                             = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
-                        
                         let mut bounded_end_list: BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>
                             = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                         bounded_end_list.try_push(festival_id).unwrap();
@@ -607,24 +844,6 @@ pub mod pallet {
                         };
                         BlockAssignments::<T>::insert(end_block.clone(), assignment);
                     }
-
-                    // BlockAssignment<BoundedVec<T::FestivalId, T::MaxFestivalsPerBlock>>,
-
-
-                    // let ranking_list = RankingList {
-                    //     name: bounded_name,
-                    //     description: bounded_description,
-                    //     status:RankingListStatus::Ongoing,
-                    //     category: category,
-                    //     list_deadline: list_deadline_block,
-                    //     list_duration: list_duration,
-                    //     movies_in_list: movies_in_list,
-                    //     votes_by_user: votes_by_user,
-                    // };
-                    // RankingLists::<T>::insert(ranking_list_id.clone(), ranking_list);
-
-                    
-
 
                     Ok(())
                 }
@@ -654,6 +873,7 @@ pub mod pallet {
 
 
 
+            //* Hook Helpers *//
 
                 fn hook_activate_festival(
                     now : T::BlockNumber,
@@ -661,13 +881,34 @@ pub mod pallet {
                     
                     let fests = BlockAssignments::<T>::try_get(now);
                     ensure!(fests.is_ok(), Error::<T>::NonexistentFestival);
+
                     let festivals = fests.unwrap();
                     for festival_id in festivals.to_start.iter() {
                         Festivals::<T>::try_mutate_exists( festival_id,|festival| -> DispatchResult{
                             let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
 
-                            ensure!(fest.status == FestivalStatus::New , Error::<T>::FestivalNotActive);
-                            fest.status = FestivalStatus::Active;
+                            let is_fest_new = fest.status == FestivalStatus::AwaitingStartBlock;
+                            // let is_creator_registered = (pallet_stat_tracker::Pallet::<T>::is_wallet_registered(fest.owner.clone())?); //TODO
+                            let is_creator_registered = true;
+                            if is_fest_new && is_creator_registered {
+                                // update the festival ownership status
+                                WalletFestivalData::<T>::try_mutate_exists( fest.owner.clone(), |wal_data| -> DispatchResult{
+                                    let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                                    
+                                    //filter the movie from the awaiting activation list
+                                    wallet_data.awaiting_start_festivals.retain(
+                                        |fes_id| 
+                                        fes_id != &festival_id.clone()
+                                    );
+                                    wallet_data.active_festivals.try_push(festival_id.clone()).unwrap();
+                                    
+                                    Ok(())
+                                })?;
+                                
+                                fest.status = FestivalStatus::Active;
+                                Self::deposit_event(Event::FestivalHasBegun(festival_id.clone()));
+                            } //TODO handle error conditions
+                            
                             Ok(())
                         })?;
                     }
@@ -675,8 +916,6 @@ pub mod pallet {
                     Ok(())
                 }
 
-
-            //* Hooks *//
 
                 fn hook_deactivate_festival(
                     now : T::BlockNumber,
@@ -689,13 +928,29 @@ pub mod pallet {
                         Festivals::<T>::try_mutate_exists( festival_id,|festival| -> DispatchResult{
                             let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                             
-                            ensure!(fest.status == FestivalStatus::Active , Error::<T>::FestivalNotActive);
+                            ensure!(
+                                fest.status == FestivalStatus::Active, Error::<T>::FestivalNotActive);
                         
                             if fest.vote_list.len() > 0 {
                                 Self::do_resolve_market(festival_id.clone())?;
                             }
                             
-                            fest.status = FestivalStatus::Inactive;
+                            // update the festival ownership status
+                            WalletFestivalData::<T>::try_mutate_exists( fest.owner.clone(), |wal_data| -> DispatchResult{
+                                let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                                
+                                //filter the movie from the awaiting activation list
+                                wallet_data.active_festivals.retain(
+                                    |fes_id| 
+                                    fes_id != &festival_id.clone()
+                                );
+                                wallet_data.finished_festivals.try_push(festival_id.clone()).unwrap();
+                                
+                                Ok(())
+                            })?;
+
+                            fest.status = FestivalStatus::Finished;
+                            Self::deposit_event(Event::FestivalHasEnded(festival_id.clone()));
                             Ok(())
                         })?;
                     }
@@ -705,137 +960,35 @@ pub mod pallet {
 
 
 
-            //* Category *//
-
-                pub fn do_validate_category (
-                    bounded_name:  BoundedVec<u8, T::CategoryStringLimit>,
-                )-> Result<(), DispatchError> {
-    
-                    ensure!(!Categories::<T>::contains_key(bounded_name), Error::<T>::CategoryAlreadyExists);
-                    Ok(())
-                }
-
-
-                pub fn do_create_category (
-                    bounded_name:  BoundedVec<u8, T::CategoryStringLimit>,
-                )-> Result<(), DispatchError> {
-                        
-                    let bounded_tag_list: BoundedVec<BoundedVec<u8, T::TagStringLimit>, T::MaxTags>
-                        = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
-
-                    let category = Category {
-                        tag_list: bounded_tag_list,
-                    };
-    
-                    Categories::<T>::insert(bounded_name, category);
-                    Ok(())
-                }
-
-
-
-            //* Tag *//
-
-                pub fn do_validate_tag (
-                    bounded_tag:  BoundedVec<u8, T::TagStringLimit>,
-                    bounded_category:  BoundedVec<u8, T::CategoryStringLimit>,
-                )-> Result<(), DispatchError> {
-    
-                    ensure!(Categories::<T>::contains_key(bounded_category), Error::<T>::NonexistentCategory);
-                    ensure!(!Tags::<T>::contains_key(bounded_tag), Error::<T>::TagAlreadyExists);
-                    Ok(())
-                }
-
-
-                pub fn do_create_tag (
-                    bounded_tag:  BoundedVec<u8, T::TagStringLimit>,
-                    bounded_category:  BoundedVec<u8, T::CategoryStringLimit>,
-                    bounded_description: BoundedVec<u8, T::DescStringLimit>,
-                )-> Result<(), DispatchError> {
-                        
-                    let tag = Tag {
-                        parent_category: bounded_category.clone(),
-                        description: bounded_description,
-                    };
-
-                    Categories::<T>::try_mutate_exists(bounded_category, |category| -> DispatchResult {
-                        let cat = category.as_mut().ok_or(Error::<T>::BadMetadata)?;
-                        ensure!(!cat.tag_list.contains(&bounded_tag), Error::<T>::TagAlreadyExists);
-                        
-                        cat.tag_list.try_push(bounded_tag.clone()).unwrap();
-                        Ok(())
-                    })?;
-
-                    Tags::<T>::insert(bounded_tag, tag);
-
-                    Ok(())
-                }
-
 
             //** Movie **//
-
-                pub fn do_add_internal_movie_to_festival (
-                    festival_id: T::FestivalId,
-                    movie_id : BoundedVec<u8, T::LinkStringLimit>,
-                )-> Result<(), DispatchError> {
-                    
-                    pallet_movie::Pallet::<T>::do_ensure_internal_movie_exist(movie_id.clone())?;
-                    
-                    Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
-                        let fes = festival.as_mut().ok_or(Error::<T>::BadMetadata)?;
-                        ensure!(!fes.films.contains(&movie_id), Error::<T>::MovieAlreadyInFestival);
-                        
-                        fes.films.try_push(movie_id).unwrap();
-                        Ok(())
-                    })?;
-                    
-                    Ok(())
-                }
-
-                pub fn do_add_external_movie_to_festival (
-                    festival_id: T::FestivalId,
-                    movie_id : BoundedVec<u8, T::LinkStringLimit>,
-                )-> Result<(), DispatchError> {
-                    
-                    Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
-                        let fes = festival.as_mut().ok_or(Error::<T>::BadMetadata)?;
-                        ensure!(!fes.films.contains(&movie_id), Error::<T>::MovieAlreadyInFestival);
-                        
-                        fes.films.try_push(movie_id).unwrap();
-                        Ok(())
-                    })?;
-                    
-                    Ok(())
-                }
-
 
                 pub fn do_vote_for_movie_in_festival(
                     who: &T::AccountId,
                     festival_id: T::FestivalId,
                     movie_id : BoundedVec<u8, T::LinkStringLimit>,
-                    amount: BalanceOf<T>,
                 )-> Result<(), DispatchError> {
                     
-                    let vote = Vote {
-                        voter: who.clone(),
-                        vote_for: movie_id.clone(),
-                        amount: amount,
-                    };
-
                     Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
                         
                         let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;   
 
+                        ensure!(fest.owner != who.clone(), Error::<T>::FestivalNotActive);
                         ensure!(fest.status == FestivalStatus::Active, Error::<T>::FestivalNotActive);
-                        ensure!(fest.min_entry <= amount, Error::<T>::VoteAmountTooLow);
-                        ensure!(fest.films.contains(&movie_id.clone()), Error::<T>::MovieNotInFestival);
-                        ensure!( <T as Config>::Currency::transfer(
+                        ensure!( <T as pallet_stat_tracker::Config>::Currency::transfer(
                             who,
                             &Self::account_id(),
-                            amount,
+                            fest.min_entry,
                             AllowDeath,
                         ) == Ok(()), Error::<T>::InsufficientBalance);
                         
-                        fest.total_lockup.checked_add(&amount).ok_or(Error::<T>::Overflow)?;
+                        let vote = Vote {
+                            voter: who.clone(),
+                            vote_for: movie_id.clone(),
+                            amount: fest.min_entry,
+                        };
+
+                        fest.total_lockup.checked_add(&fest.min_entry).ok_or(Error::<T>::Overflow)?;
                         fest.vote_list.try_push(vote).unwrap();
 
                         Ok(())
@@ -851,34 +1004,34 @@ pub mod pallet {
                     <T as Config>::PalletId::get().try_into_account().unwrap()
                 }
 
-                pub fn do_transfer_funds_to_treasury(
-                    who: &T::AccountId,
-                    amount: BalanceOf<T>,
-                ) -> Result<(), DispatchError> {
+                // pub fn do_transfer_funds_to_treasury(
+                //     who: &T::AccountId,
+                //     amount: BalanceOf<T>,
+                // ) -> Result<(), DispatchError> {
 
-                    let treasury = &Self::account_id();
-                    T::Currency::transfer(
-                        who, treasury,
-                        BalanceOf::<T>::from(amount), KeepAlive,
-                    )?;
+                //     let treasury = &Self::account_id();
+                //     T::Currency::transfer(
+                //         who, treasury,
+                //         BalanceOf::<T>::from(amount), KeepAlive,
+                //     )?;
 
-                    Ok(())
-                }
+                //     Ok(())
+                // }
 
 
-                pub fn do_transfer_funds_from_treasury(
-                    who: &T::AccountId,
-                    amount: BalanceOf<T>,
-                ) -> Result<(), DispatchError> {
+                // pub fn do_transfer_funds_from_treasury(
+                //     who: &T::AccountId,
+                //     amount: BalanceOf<T>,
+                // ) -> Result<(), DispatchError> {
 
-                    let treasury = &Self::account_id();
-                    T::Currency::transfer(
-                        &treasury, who,
-                        amount, KeepAlive,
-                    )?;
+                //     let treasury = &Self::account_id();
+                //     T::Currency::transfer(
+                //         &treasury, who,
+                //         amount, KeepAlive,
+                //     )?;
 
-                    Ok(())
-                }
+                //     Ok(())
+                // }
 
 
             /* Votes */
@@ -892,12 +1045,17 @@ pub mod pallet {
                 
                 let festival = Festivals::<T>::try_get(festival_id).unwrap();
                 let total_lockup = festival.total_lockup;
+                let treasury = &Self::account_id();
                 for vote in festival.vote_list { 
                     if winning_opts.contains(&vote.vote_for.clone()) {
-                        Self::do_transfer_funds_from_treasury(
-                            &vote.voter, 
-                            Self::do_calculate_simple_reward(total_lockup, vote.amount, winners_lockup)?,
+                        let amount = Self::do_calculate_simple_reward(
+                            total_lockup, vote.amount, winners_lockup
                         )?;
+                        <T as pallet_stat_tracker::Config>::Currency::transfer(
+                            &treasury, &vote.voter,
+                            amount, KeepAlive,
+                        )?;
+                        pallet_stat_tracker::Pallet::<T>::update_tokens_festival(vote.voter, amount, false)?;
                     }
                 }
 
@@ -914,25 +1072,67 @@ pub mod pallet {
 
                 let fes_votes = Festivals::<T>::try_get(festival_id).unwrap().vote_list;
                 for vote in fes_votes {
-                    // amount -amount = 0 with Balance trait
                     let movie_id = vote.vote_for;
                     let amount = vote.amount;
+                    // amount -amount = 0 with Balance trait
                     let stat =  accumulator.entry(movie_id).or_insert(amount - amount);
                     *stat += amount;
                 }
 
-                let first_winner= 
-                        accumulator
-                        .iter()
-                        .clone()
-                        .max_by_key(|p| p.1)
-                        .unwrap();
+                let first_winner = accumulator
+                    .iter()
+                    .clone()
+                    .max_by_key(|p| p.1)
+                    .unwrap();
                 
                 let mut winners = vec![first_winner.0.clone()];
                 
+                // untie by adding all entries with the same lockup
                 for (movie, lockup) in &accumulator {
                     if lockup == first_winner.1 && movie != first_winner.0 {
                         winners.push(movie.clone());
+                    }
+                }
+
+                // verify if movies still exist, and assign the win to the uploader
+                for movie_id in winners.clone() {
+                    //TODO extract these 2 checks into pallet_movie
+                    // let internal_movie_exists = pallet_movie::Pallet::<T>
+                    //     ::do_does_internal_movie_exist(movie_id.clone())?;
+                    // let external_movie_exists = pallet_movie::Pallet::<T>
+                    //     ::do_does_external_movie_exist(movie_id.clone())?;
+
+                    let uploader = pallet_movie::Pallet::<T>
+                        ::get_movie_uploader(movie_id)?;
+
+                    // assign wins to the uploaders of the winning movies
+                    if !WalletFestivalData::<T>::contains_key(uploader.clone()) {
+
+                        let bounded_owned_list : BoundedVec<T::FestivalId, T::MaxOwnedFestivals>
+                            = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
+                        
+                        let mut bounded_won_list : BoundedVec<T::FestivalId, T::MaxOwnedFestivals>
+                            = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
+                        bounded_won_list.try_push(festival_id).unwrap();
+
+                        let new_data = WalletData {
+                            all_festivals: bounded_owned_list.clone(),
+                            awaiting_activation_festivals: bounded_owned_list.clone(),
+                            awaiting_start_festivals: bounded_owned_list.clone(),
+                            active_festivals: bounded_owned_list.clone(),
+                            finished_festivals: bounded_owned_list,
+                            won_festivals: bounded_won_list.clone(),
+                        };
+                        WalletFestivalData::<T>::insert(uploader.clone(), new_data);
+
+                    }
+                    else {
+                        WalletFestivalData::<T>::try_mutate( uploader.clone(), |festival_data| -> DispatchResult{
+                            let fes_data = festival_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                            fes_data.won_festivals.try_push(festival_id).unwrap();
+                            
+                            Ok(())
+                        })?;
                     }
                 }
                 
@@ -944,8 +1144,8 @@ pub mod pallet {
                 festival_id: T::FestivalId, 
                 winning_movies:Vec<BoundedVec<u8, T::LinkStringLimit>>
             ) -> Result<BalanceOf<T>,DispatchError> {
-                
-                let mut winners_lockup : <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance=0u32.into();
+                //TODO use balanceof alias
+                let mut winners_lockup : BalanceOf<T> = 0u32.into();
 
                 let fes_votes = Festivals::<T>::try_get(festival_id).unwrap().vote_list;
 
@@ -961,9 +1161,13 @@ pub mod pallet {
             fn do_calculate_simple_reward(
                 total_lockup: BalanceOf<T>,
                 user_lockup: BalanceOf<T>,
-                winner_lockup: BalanceOf<T>) ->Result<BalanceOf<T>,DispatchError> {
+                winner_lockup: BalanceOf<T>,
+            ) -> Result<BalanceOf<T>, DispatchError> {
                 
-                Ok(( user_lockup * 1000u32.into() )/( winner_lockup)*(total_lockup/1000u32.into()))
+                Ok(
+                    (user_lockup * 1000u32.into()) /
+                    (winner_lockup) * (total_lockup / 1000u32.into())
+                ) //TODO check bracket after winner_lockup
             }
 
 

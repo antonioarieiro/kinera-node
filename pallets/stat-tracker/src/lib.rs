@@ -1,5 +1,6 @@
 //** About **//
 	// The basic representation of a movie in the system.
+	//TODO check the use of references in the helper functions that do not need to use .clone()
 	
 	
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -23,7 +24,17 @@ pub mod pallet {
 
 		//* Imports *//
 			
-			use frame_support::pallet_prelude::*;
+			use frame_support::{
+				pallet_prelude::*,
+				traits::{
+					Currency,
+					ReservableCurrency,
+				},
+				sp_runtime::traits::{
+					CheckedAdd,
+					CheckedSub,
+				}
+			};
 			use frame_system::pallet_prelude::*;
 
 			use codec::{Decode, Encode, MaxEncodedLen};
@@ -35,13 +46,17 @@ pub mod pallet {
 		//* Config *//
 
 			#[pallet::pallet]
+
 			#[pallet::generate_store(pub(super) trait Store)]
 			pub struct Pallet<T>(_);
 
 			#[pallet::config]
 			pub trait Config: frame_system::Config {
 				type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+				type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+
 				type DefaultReputation: Get<u32>;
+				type NameStringLimit: Get<u32>;
 			}
 
 
@@ -49,13 +64,26 @@ pub mod pallet {
 	//** Types **//	
 	
 		//* Types *//
+
+			type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 		//* Constants *//
 		//* Enums *//
 		//* Structs *//
 
 			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)] //TODO add type info
-			pub struct Stats {
+			pub struct Stats<BoundedName, Balance> {
+				pub is_name_public: bool,
+				pub is_wallet_public: bool,
+				pub name: BoundedName,
 				pub reputation: u32,
+				
+				pub total_tokens_moderation: Balance,
+				pub claimable_tokens_moderation: Balance,
+				pub total_tokens_festival: Balance,
+				pub claimable_tokens_festival: Balance,
+				pub total_tokens_ranking: Balance,
+				pub claimable_tokens_ranking: Balance,
 			}
 
 
@@ -63,13 +91,16 @@ pub mod pallet {
 	//** Storage **//
 
 		#[pallet::storage]
-		#[pallet::getter(fn wallet_reputation)]
-		pub type WalletReputation<T: Config> = 
+		#[pallet::getter(fn get_wallet_stats)]
+		pub type WalletStats<T: Config> = 
 			StorageMap<
 				_, 
 				Blake2_128Concat, T::AccountId,
-				Stats,
-			>;
+				Stats<
+					BoundedVec<u8, T::NameStringLimit>,
+					BalanceOf<T>,
+				>,
+			>; //TODO check why bounded vec has T::AccountId as the key
 
 	
 	
@@ -78,7 +109,14 @@ pub mod pallet {
 		#[pallet::event]
 		#[pallet::generate_deposit(pub(super) fn deposit_event)]
 		pub enum Event<T: Config> {
-			AccountRegistered(T::AccountId),
+			AccountRegisteredAdress(T::AccountId),
+			AccountRegisteredName(BoundedVec<u8, T::NameStringLimit>),
+
+			AccountUnregisteredAddress(T::AccountId),
+			AccountUnregisteredName(BoundedVec<u8, T::NameStringLimit>),
+
+			AccountDataUpdatedAddress(T::AccountId),
+			AccountDataUpdatedName(BoundedVec<u8, T::NameStringLimit>),
 		}
 	
 
@@ -88,6 +126,12 @@ pub mod pallet {
 		#[pallet::error]
 		pub enum Error<T> {
 			WalletAlreadyRegistered,
+			WalletNotRegisteredStatTracker,
+			DraftedModeratorNotRegistered,
+			BadMetadata,
+			Overflow,
+			Underflow,
+			WalletStatsRegistryRequired,
 		}
 
 
@@ -104,6 +148,116 @@ pub mod pallet {
 		#[pallet::call]
 		impl<T:Config> Pallet<T> {
 
+			#[pallet::weight(10_000)]
+			pub fn register_new_wallet(
+				origin: OriginFor<T>,
+				is_name_public: bool,
+				is_wallet_public: bool,
+				name: BoundedVec<u8, T::NameStringLimit>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+				ensure!(
+					!WalletStats::<T>::contains_key(who.clone()), 
+					Error::<T>::WalletAlreadyRegistered
+				);
+
+				let zero_balance = BalanceOf::<T>::from(0u32);
+				let stats = Stats {
+					is_wallet_public: is_wallet_public,
+					is_name_public: is_name_public,
+					name: name.clone(),
+					reputation: T::DefaultReputation::get(),
+
+					total_tokens_moderation: zero_balance.clone(),
+					claimable_tokens_moderation: zero_balance.clone(),
+					total_tokens_festival: zero_balance.clone(),
+					claimable_tokens_festival: zero_balance.clone(),
+					total_tokens_ranking: zero_balance.clone(),
+					claimable_tokens_ranking: zero_balance,
+				};
+				WalletStats::<T>::insert(who.clone(), stats.clone());
+
+				// check if events should be emitted, depending on the privacy settings
+				if is_wallet_public {
+					Self::deposit_event(Event::AccountUnregisteredAddress(who));   
+				}
+				else if is_name_public {
+					Self::deposit_event(Event::AccountUnregisteredName(name));   
+				};   
+
+				Ok(())
+			}
+
+
+			#[pallet::weight(10_000)]
+			pub fn unregister_wallet(
+				origin: OriginFor<T>,
+				name: BoundedVec<u8, T::NameStringLimit>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+
+				let stats = WalletStats::<T>::try_get(who.clone()).unwrap();
+
+				WalletStats::<T>::remove(who.clone());
+
+				//TODO check all active interactions in the following pallets:
+				// social-space, festival, ranking-list, moderation
+
+				// check if events should be emitted, depending on the privacy settings
+				if stats.is_wallet_public {
+					Self::deposit_event(Event::AccountUnregisteredAddress(who));   
+				}
+				else if stats.is_name_public {
+					Self::deposit_event(Event::AccountUnregisteredName(name));   
+				}
+
+				Ok(())
+			}
+
+
+
+
+
+
+
+			#[pallet::weight(10_000)]
+			pub fn update_wallet_data(
+				origin: OriginFor<T>,
+				is_name_public: bool,
+				is_wallet_public: bool,
+				name: BoundedVec<u8, T::NameStringLimit>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+				ensure!(
+					WalletStats::<T>::contains_key(who.clone()), 
+					Error::<T>::WalletNotRegisteredStatTracker
+				);
+
+				WalletStats::<T>::try_mutate(who.clone(), |wallet_stats| -> DispatchResult {
+					let stats = wallet_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+
+					// update the wallet's data
+					stats.is_name_public = is_name_public;
+					stats.is_wallet_public = is_wallet_public;
+					stats.name = name.clone();
+
+					Ok(())
+				})?;
+
+				// check if events should be emitted, depending on the privacy settings
+				if is_wallet_public {
+					Self::deposit_event(Event::AccountDataUpdatedAddress(who));   
+				}
+				else if is_name_public {
+					Self::deposit_event(Event::AccountDataUpdatedName(name));   
+				}
+
+				Ok(())
+			}
+
 		}
 	
 	
@@ -112,22 +266,6 @@ pub mod pallet {
 	
 		impl<T:Config> Pallet<T> {
 					
-			pub fn register_new_wallet(
-				who: &T::AccountId,
-			) -> DispatchResult {
-				
-				// WalletReputation::<T>::try_get(who).unwrap(); // TODO check if moderator doesnt exist already
-
-				let stats = Stats {
-					reputation: T::DefaultReputation::get(),
-				};
-				WalletReputation::<T>::insert(who, stats.clone());
-
-				Self::deposit_event(Event::AccountRegistered(who.clone()));   
-				Ok(())
-			}
-
-
 			pub fn create_moderator_btree(
 				moderators: Vec<T::AccountId>,
 			) -> Result<BTreeMap<T::AccountId, u32>, DispatchError> {
@@ -135,14 +273,211 @@ pub mod pallet {
 				let mut btree = BTreeMap::new();
 				
 				for moderator_id in moderators {
-					Self::register_new_wallet(&moderator_id)?;
-					let total_reputation = WalletReputation::<T>::try_get(&moderator_id).unwrap().reputation;
+					ensure!(
+						WalletStats::<T>::contains_key(moderator_id.clone()), 
+						Error::<T>::DraftedModeratorNotRegistered
+					);
+					let total_reputation = WalletStats::<T>::try_get(&moderator_id).unwrap().reputation;
 					btree.insert(moderator_id, total_reputation);
 				}
 
 				Ok(btree)
 			}
+				
+			// apply either positive or negative value changes
+			pub fn apply_reputation_value_change(
+				who: T::AccountId,
+				reputation_value: u32,
+			) -> Result<u32, DispatchError> {
+				
+				ensure!(
+					WalletStats::<T>::contains_key(who.clone()), 
+					Error::<T>::WalletNotRegisteredStatTracker
+				);
+
+				let total_reputation = WalletStats::<T>::get(who).unwrap().reputation;
+
+				total_reputation.checked_add(reputation_value).ok_or(Error::<T>::Overflow)?;
+
+				Ok(total_reputation)
+			}
+				
+			//
+			pub fn is_wallet_registered(
+				who: T::AccountId,
+			) -> Result<bool, DispatchError> {
+
+				Ok(WalletStats::<T>::contains_key(who))
+			}
+			
+			
+
+
+
+			//TODO update the 3 "update_claimable" functions using & to acess memory of the exact variable, instead of having 3 funcs
+			// Updates the values for the ranking section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.
+			pub fn update_tokens_ranking(
+				who: T::AccountId,
+				claimable_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_claimable = wallet_stats.claimable_tokens_ranking;
+
+					// reset the claimable tokens back to 0
+					if claimable_tokens == BalanceOf::<T>::from(0u32) {
+						current_claimable = BalanceOf::<T>::from(0u32);
+					}
+					// decrement both the claimable tokens and the total tokens
+					
+					else if is_slash {
+						current_claimable = 
+							current_claimable
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+						
+						let mut total_tokens = wallet_stats.total_tokens_ranking;
+						total_tokens = 
+							total_tokens
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					// increment both the claimable tokens and the total tokens
+					else {
+						current_claimable = 
+							current_claimable
+							.checked_add(&claimable_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+						
+						let mut total_tokens = wallet_stats.total_tokens_ranking;
+						total_tokens = 
+							total_tokens
+							.checked_add(&claimable_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+					}
+					
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+
+			// Updates the values for the festival section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.ool.
+			pub fn update_tokens_festival(
+				who: T::AccountId,
+				claimable_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_claimable = wallet_stats.claimable_tokens_festival;
+
+					// reset the claimable tokens back to 0
+					if claimable_tokens > BalanceOf::<T>::from(0u32) {
+						current_claimable = BalanceOf::<T>::from(0u32);
+					}
+					// decrement both the claimable tokens and the total tokens
+					else if is_slash {
+						current_claimable = 
+							current_claimable
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+						
+						let mut total_tokens = wallet_stats.total_tokens_festival;
+						total_tokens = 
+							total_tokens
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					// increment both the claimable tokens and the total tokens
+					else {
+						current_claimable = 
+						current_claimable
+						.checked_add(&claimable_tokens)
+						.ok_or(Error::<T>::Overflow)?;
+					
+						let mut total_tokens = wallet_stats.total_tokens_festival;
+						total_tokens = 
+							total_tokens
+							.checked_add(&claimable_tokens)
+							.ok_or(Error::<T>::Overflow)?;			
+					}
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+
+			// Updates the values for the moderation section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.
+			pub fn update_tokens_moderation(
+				who: T::AccountId,
+				claimable_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_claimable = wallet_stats.claimable_tokens_moderation;
+
+					if claimable_tokens == BalanceOf::<T>::from(0u32) {
+						current_claimable = BalanceOf::<T>::from(0u32);
+					}
+					// decrement both the claimable tokens and the total tokens
+					if is_slash {
+						current_claimable = 
+							current_claimable
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+						
+						let mut total_tokens = wallet_stats.total_tokens_moderation;
+						total_tokens = 
+							total_tokens
+							.checked_sub(&claimable_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+						
+					}
+					// increment both the claimable tokens and the total tokens
+					else {
+						current_claimable = 
+							current_claimable
+							.checked_add(&claimable_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+						
+						let mut total_tokens = wallet_stats.total_tokens_moderation;
+						total_tokens = 
+							total_tokens
+							.checked_add(&claimable_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+					}
+					// reset the claimable tokens back to 0
+					
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+
 
 		}
-	
 }

@@ -29,12 +29,19 @@ serde = { version = "1.0", features = ["derive"] }
 
 
 pallet-movie = {path = '../movie', default-features = false, version = '4.0.0-dev'}
-pallet-democracy = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
-pallet-staking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-pallet-session = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
-pallet-utility = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-sp-std = {version = '4.0.0', default-features = false}
-getrandom = { version = "0.2.7", features = ["js"] }
+pallet-tags = {path = '../tags', default-features = false, version = '4.0.0-dev'}
+pallet-stat-tracker = {path = '../stat-tracker', default-features = false, version = '4.0.0-dev'}
+
+# pallet-democracy = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
+# pallet-staking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
+# pallet-session = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
+# pallet-utility = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
+# sp-std = {version = '4.0.0', default-features = false}
+# getrandom = { version = "0.2.7", features = ["js"] }
+
+[dev-dependencies]
+pallet-balances = {default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
+
 
 
 [features]
@@ -45,9 +52,9 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"pallet-staking/std",
-	"pallet-session/std",
-	"pallet-utility/std",
+	# "pallet-staking/std",
+	# "pallet-session/std",
+	# "pallet-utility/std",
 ]
 runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
 try-runtime = ["frame-support/try-runtime"]

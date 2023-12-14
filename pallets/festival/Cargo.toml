@@ -29,7 +29,11 @@ sp-std = {version = '4.0.0', default-features = false, git = "https://github.com
 
 # pallet-stat-tracker = {path = '../stat-tracker', default-features = false, version = '4.0.0-dev'}
 pallet-movie = {path="../movie", default-features = false, version = '4.0.0-dev'}
+pallet-tags = {path = '../tags', default-features = false, version = '4.0.0-dev'}
+pallet-stat-tracker = {path = '../stat-tracker', default-features = false, version = '4.0.0-dev'}
 
+# [dev-dependencies]
+pallet-balances = {default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25"}
 
 [features]
 default = ['std']
@@ -40,6 +44,7 @@ std = [
 	'frame-support/std',
 	'frame-system/std',
 	'scale-info/std',
+	'pallet-balances/std',
 ]
 
 try-runtime = ['frame-support/try-runtime']

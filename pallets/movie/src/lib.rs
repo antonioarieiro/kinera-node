@@ -1,5 +1,9 @@
 //** About **//
-	// Information regarding the pallet
+	// This pallet tracks all information regarding movie entries.
+    // The movies it contains can be either internal (uploaded to a storage platform associated with the network)
+    // and external (content that externally sourced).
+    //TODO merge internal and external storages into a single storage.
+    //TODO add checks to see if the movies still exist.
 
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -23,7 +27,14 @@ pub mod pallet {
 
 		//* Imports *//
 
-            use frame_support::{pallet_prelude::*,BoundedVec};
+            use frame_support::{
+                pallet_prelude::*,
+                BoundedVec,
+                traits::{
+                    Currency, 
+                    ReservableCurrency,
+                }
+            };
             use frame_system::pallet_prelude::*;
             use codec::{Decode, Encode, MaxEncodedLen};
             use sp_runtime::{RuntimeDebug, traits::{AtLeast32BitUnsigned, CheckedAdd, One}};
@@ -31,6 +42,10 @@ pub mod pallet {
             use scale_info::prelude::vec::Vec;
             use core::convert::TryInto;
 
+            use pallet_tags::{
+				CategoryId as CategoryId,
+				TagId as TagId,
+			};
 
 	
         //* Config *//
@@ -40,12 +55,15 @@ pub mod pallet {
             pub struct Pallet<T>(_);
 
             #[pallet::config]
-            pub trait Config: frame_system::Config {
+            pub trait Config: frame_system::Config + pallet_tags::Config + pallet_stat_tracker::Config {
                 type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
                 type InternalMovieId: Member + Parameter + AtLeast32BitUnsigned + Default + Copy + MaxEncodedLen;
+                
                 #[pallet::constant]
                 type StringLimit: Get<u32>;
                 type LinkStringLimit: Get<u32>;
+
+                type MovieCollateral: Get<u32>;
             }
 
     
@@ -53,6 +71,8 @@ pub mod pallet {
 	//** Types **//	
 	
 		//* Types *//
+            type BalanceOf<T> = <<T as pallet_stat_tracker::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 		//* Constants *//
 		//* Enums *//
 
@@ -65,7 +85,7 @@ pub mod pallet {
 		//* Structs *//
 
             #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen,TypeInfo)]
-            pub struct Movie<AccountId,BoundedString, BoundedLinkString> {
+            pub struct Movie<AccountId,BoundedString, BoundedLinkString, CategoryTagList> {
                 pub	uploader: AccountId,
                 pub name:BoundedString,
                 pub synopsis:BoundedString,
@@ -77,18 +97,19 @@ pub mod pallet {
                 pub country:BoundedString,
                 pub rating:u32,
                 pub aspect_ratio:BoundedString,
-                pub tags:BoundedString,
                 pub trailer:BoundedString,
                 pub imdb:BoundedString,
                 pub social:BoundedString,
                 pub ipfs:BoundedLinkString,
                 pub link:BoundedString,
+                pub categories_and_tags: CategoryTagList,
             }
-
+            
             #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen,TypeInfo)]
-            pub struct ExternalMovie<AccountId, ExternalSource> {
+            pub struct ExternalMovie<AccountId, ExternalSource, CategoryTagList> {
                 pub uploader: AccountId,
                 pub source: ExternalSource,
+                pub categories_and_tags: CategoryTagList,
             }
 
 
@@ -105,6 +126,7 @@ pub mod pallet {
         >;
 
         #[pallet::storage]
+        #[pallet::getter(fn internal_movies)]
         pub type InternalMovies<T: Config> = StorageMap<
             _, 
             Blake2_128Concat, BoundedVec<u8, T::LinkStringLimit>, 
@@ -112,6 +134,7 @@ pub mod pallet {
                 T::AccountId,
                 BoundedVec<u8, T::StringLimit>,
                 BoundedVec<u8, T::LinkStringLimit>,
+                BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             >
         >;
 
@@ -119,12 +142,14 @@ pub mod pallet {
         //* External Movies *//
 
         #[pallet::storage]
+        #[pallet::getter(fn external_movies)]
         pub type ExternalMovies<T: Config> = StorageMap<
             _, 
             Blake2_128Concat, BoundedVec<u8, T::LinkStringLimit>,
             ExternalMovie<
                 T::AccountId,
                 ExternalSource,
+                BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             >
         >;
 
@@ -152,6 +177,7 @@ pub mod pallet {
             Overflow,
             Underflow,
             BadMetadata,
+            WalletStatsRegistryRequired,
         }
 
 
@@ -180,15 +206,31 @@ pub mod pallet {
                 country:Vec<u8>,
                 rating:u32,
                 aspect_ratio:Vec<u8>,
-                tags:Vec<u8>,
                 trailer:Vec<u8>,
                 imdb:Vec<u8>,
                 social:Vec<u8>,
                 ipfs:Vec<u8>,
                 link:Vec<u8>,
+                category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> DispatchResult {
                 let who = ensure_signed(origin)?;
-                Self::do_create_internal_movie(&who, name,synopsis,movie_description,classification,release,director,lang,country,rating,aspect_ratio,tags,trailer,imdb,social,ipfs,link)?;
+                // ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
+
+                T::Currency::reserve(
+                    &who, 
+                    BalanceOf::<T>::from(T::MovieCollateral::get())
+                );
+                
+                Self::do_create_internal_movie(
+                    &who, name,synopsis, movie_description,
+                    classification, release, director, lang,
+                    country, rating, aspect_ratio, trailer,
+                    imdb, social, ipfs, link, category_tag_list,
+                )?;
+
                 Ok(())
             }
             
@@ -197,9 +239,22 @@ pub mod pallet {
                 origin: OriginFor<T>,
                 source: ExternalSource,
                 link:BoundedVec<u8, T::LinkStringLimit>,
+                category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> DispatchResult {
+                
                 let who = ensure_signed(origin)?;
-                Self::do_create_external_movie(&who, source, link)?;
+                // ensure!(
+				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+				// 	Error::<T>::WalletStatsRegistryRequired,
+				// );
+
+                T::Currency::reserve(
+                    &who, 
+                    BalanceOf::<T>::from(T::MovieCollateral::get())
+                );
+
+                Self::do_create_external_movie(&who, source, link, category_tag_list)?;
+
                 Ok(())
             }
 
@@ -222,12 +277,12 @@ pub mod pallet {
                 country:Vec<u8>,
                 rating:u32,
                 aspect_ratio:Vec<u8>,
-                tags:Vec<u8>,
                 trailer:Vec<u8>,
                 imdb:Vec<u8>,
                 social:Vec<u8>,
                 ipfs:Vec<u8>,
                 link:Vec<u8>,
+                category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> Result<T::InternalMovieId, DispatchError> {
  
                 let movie_id =
@@ -240,6 +295,13 @@ pub mod pallet {
                         Ok(current_id)
                     })?;
         
+                let category_type: pallet_tags::CategoryType<T>
+                    = TryInto::try_into("Movie".as_bytes().to_vec()).map_err(|_|Error::<T>::BadMetadata)?;
+                
+                pallet_tags::Pallet::<T>::validate_tag_data(
+                    category_type.clone(), 
+                    category_tag_list.clone()
+                )?;
                 
                 let bounded_name: BoundedVec<u8, T::StringLimit> = TryInto::try_into(name).map_err(|_| Error::<T>::BadMetadata)?;
                 
@@ -263,9 +325,6 @@ pub mod pallet {
                 let bounded_aspect_ratio: BoundedVec<u8, T::StringLimit> =
                     TryInto::try_into(aspect_ratio).map_err(|_| Error::<T>::BadMetadata)?;
 
-                let bounded_tags: BoundedVec<u8, T::StringLimit> =
-                    TryInto::try_into(tags).map_err(|_| Error::<T>::BadMetadata)?;
-
                 let bounded_trailer: BoundedVec<u8, T::StringLimit> =
                     TryInto::try_into(trailer).map_err(|_|Error::<T>::BadMetadata)?;
                 
@@ -280,7 +339,6 @@ pub mod pallet {
 
                 let bounded_ipfs: BoundedVec<u8, T::LinkStringLimit> =
                 TryInto::try_into(ipfs).map_err(|_|Error::<T>::BadMetadata)?;
-
                 
                 let movie = Movie {
                     uploader:who.clone(),
@@ -294,22 +352,32 @@ pub mod pallet {
                     country:bounded_country,
                     rating:rating,
                     aspect_ratio:bounded_aspect_ratio,
-                    tags:bounded_tags,
                     trailer:bounded_trailer,
                     imdb:bounded_imdb,
                     social:bounded_social,
                     ipfs:bounded_ipfs,
                     link:bounded_link,
+                    categories_and_tags: category_tag_list.clone(),
                 };
         
-            
                 // parse the u32 type into a BoundedVec<u8, T::StringLimit>
                 let encoded: Vec<u8> = movie_id.encode();
                 let bounded_movie_id: BoundedVec<u8, T::LinkStringLimit> = 
-                    TryInto::try_into(encoded).map_err(|_|Error::<T>::BadMetadata)?;
+                    TryInto::try_into(encoded.clone()).map_err(|_|Error::<T>::BadMetadata)?;
 
+                //TODO ensure it doesn't exist
                 InternalMovies::<T>::insert(bounded_movie_id.clone(), movie.clone());
                 Self::deposit_event(Event::InternalMovieCreated(bounded_movie_id.clone(), who.clone()));
+
+                // parse the u32 type into a BoundedVec<u8, T::ContentStringLimit
+                let bounded_content_id: BoundedVec<u8, T::ContentStringLimit> = 
+                    TryInto::try_into(encoded).map_err(|_|Error::<T>::BadMetadata)?;
+
+                pallet_tags::Pallet::<T>::update_tag_data(
+                    category_type, 
+                    category_tag_list,
+                    bounded_content_id,
+                )?;
         
                 Ok(movie_id.clone())
             } 
@@ -319,13 +387,23 @@ pub mod pallet {
                 who: &T::AccountId,
                 source: ExternalSource,
                 link: BoundedVec<u8, T::LinkStringLimit>,
+                category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> Result<BoundedVec<u8, T::LinkStringLimit>, DispatchError> {
         
                 Self::do_ensure_external_movie_doesnt_exist(link.clone())?;
 
+                let category_type: pallet_tags::CategoryType<T>
+                    = TryInto::try_into("Movie".as_bytes().to_vec()).map_err(|_|Error::<T>::BadMetadata)?;
+            
+                pallet_tags::Pallet::<T>::validate_tag_data(
+                    category_type.clone(), 
+                    category_tag_list.clone()
+                )?;
+
                 let movie = ExternalMovie {
                     uploader:who.clone(),
                     source: source,
+                    categories_and_tags: category_tag_list,
                 };
             
                 ExternalMovies::<T>::insert(link.clone(), movie.clone());
@@ -344,7 +422,17 @@ pub mod pallet {
                 ensure!(InternalMovies::<T>::contains_key(movie_id), Error::<T>::NoAvailableMovieId); 
                 Ok(())
             }
-        
+
+            pub fn do_does_internal_movie_exist(
+                movie_id : BoundedVec<u8, T::LinkStringLimit>,
+            ) -> Result<bool, DispatchError> {
+    
+                Ok(InternalMovies::<T>::contains_key(movie_id))
+            }
+
+
+
+
             pub fn do_does_external_movie_exist(
                 movie_id : BoundedVec<u8, T::LinkStringLimit>,
             ) -> Result<bool, DispatchError> {
@@ -359,7 +447,34 @@ pub mod pallet {
                 ensure!(!ExternalMovies::<T>::contains_key(movie_id), Error::<T>::NoAvailableMovieId); 
                 Ok(())
             }
+        
+            pub fn do_ensure_external_movie_exists(
+                movie_id : BoundedVec<u8, T::LinkStringLimit>,
+            ) -> DispatchResult {
+    
+                ensure!(ExternalMovies::<T>::contains_key(movie_id), Error::<T>::NoAvailableMovieId); 
+                Ok(())
+            }
 
+            pub fn get_movie_uploader(
+                movie_id : BoundedVec<u8, T::LinkStringLimit>,
+            ) -> Result<T::AccountId, DispatchError> {
+                //TODO optimize
+                
+                let mut uploader;
+                if InternalMovies::<T>::contains_key(movie_id.clone()) {
+                    uploader = InternalMovies::<T>::try_get(movie_id).unwrap().uploader;
+                }
+                else {
+                    uploader = ExternalMovies::<T>::try_get(movie_id).unwrap().uploader;
+                }
+                
+                Ok(uploader)
+            }
+
+
+
+            
 
 
         }
