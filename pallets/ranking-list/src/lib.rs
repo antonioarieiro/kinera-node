@@ -338,6 +338,7 @@ pub mod pallet {
 			RankingListCreated(RankingListId),
 			MovieAddedToList(RankingListId,BoundedVec<u8, T::LinkStringLimit>,T::AccountId),
 			VotedInFestival(T::AccountId, RankingListId),	
+			RankingTokensClaimed(T::AccountId, BalanceOf<T>),	
 		}
 
 
@@ -571,6 +572,8 @@ pub mod pallet {
 						) == Ok(()),
 						Error::<T>::NotEnoughBalance
 					);
+					pallet_stat_tracker::Pallet::<T>::update_locked_tokens_ranking(who.clone(), amount.clone(), false)?;
+					
 
 					// create the Vote
 					let vote = RankingVote {
@@ -602,6 +605,37 @@ pub mod pallet {
 				Self::deposit_event(Event::VotedInFestival(who, list_id));
 				Ok(())
 			}
+
+
+			#[pallet::weight(10_000)]
+			pub fn claim_ranking_rewards(
+				origin: OriginFor<T>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+				
+				let mut reward = BalanceOf::<T>::from(0u32);
+				
+				let claimable_tokens_ranking = pallet_stat_tracker::Pallet::<T>::get_wallet_stats(who.clone()).unwrap().claimable_tokens_ranking;
+
+				ensure!(
+					T::Currency::transfer(
+						&Self::account_id(), 
+						&who.clone(),
+						claimable_tokens_ranking.clone(), 
+						AllowDeath
+					) == Ok(()),
+					Error::<T>::NotEnoughBalance
+				);
+				pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_ranking(who.clone(), BalanceOf::<T>::from(0u32), true)?;
+			
+				Self::deposit_event(Event::RankingTokensClaimed(who, reward));
+				Ok(())
+			}	
+
+
+
+
 
 		}
 
@@ -732,13 +766,7 @@ pub mod pallet {
 							.checked_div(&BalanceOf::<T>::from(blocks_in_year))
 							.ok_or(Error::<T>::Overflow)?;
 					
-						// transfer the calculated amount to the user
-						//TODO check if working
-						T::Currency::deposit_into_existing(
-							&account_id, 
-							tokens_return.clone(), 
-						);
-						pallet_stat_tracker::Pallet::<T>::update_tokens_festival(account_id.clone(), tokens_return, false)?;
+						pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_ranking(account_id.clone(), tokens_return, false)?;
 					}
 
 					// swap the id for the weight so the elements can be conveniently sorted

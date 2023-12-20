@@ -104,27 +104,29 @@ pub mod pallet {
 		//* Constants *//
 		//* Enums *//
 
-			// #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-			// pub enum InfringimentType {
-			// 	Violence,
-			// 	Discrimination,
-			// 	LackOfConsent,
-			// 	Impersonation,
-			// 	Terrorism,
-			// 	Copyright,
-			// 	FakeNews,
-			// 	Pornography,
-			// 	Extreme,
-			// 	Naming,
-			// 	Categorization,
-			// }
+			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+			pub enum InfringimentType {
+				Violence,
+				Discrimination,
+				LackOfConsent,
+				Impersonation,
+				Terrorism,
+				Copyright,
+				FakeNews,
+				Pornography,
+				Extreme,
+				Naming,
+				Categorization,
+			}
 
-			// #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-			// pub enum ContentType {
-			// 	Festival,
-			// 	Movie,
-			// 	Category,
-			// }
+			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+			pub enum ContentType {
+				Festival,
+				Movie,
+				Tag,
+				RankingList,
+				SocialSpace,
+			}
 
 			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 			pub enum ReportStatus {
@@ -202,7 +204,7 @@ pub mod pallet {
 			pub type Reports<T: Config> =
 				StorageMap<
 					_, 
-					Blake2_128Concat, T::ContentId, 
+					Blake2_128Concat, (T::ContentId, ContentType), 
 					Report<
 						T::AccountId, 
 						ReportStatus, 
@@ -217,7 +219,7 @@ pub mod pallet {
 			pub type ReportVerdicts<T: Config> =
 				StorageDoubleMap<
 					_,
-					Blake2_128Concat, T::ContentId, 
+					Blake2_128Concat, (T::ContentId, ContentType), 
 					Blake2_128Concat, Tiers,
 					ReportOutcome<BoundedVec<Vote<T::AccountId>, T::MaxReportsByTier>, BalanceOf<T>>,
 					OptionQuery,
@@ -313,7 +315,7 @@ pub mod pallet {
 		#[pallet::hooks]
 		impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 			// TODO check if any report is past due
-			// TODo update veredicts after time limit if no appeal is made
+			// TODO update veredicts after time limit if no appeal is made
 		}
 	
 
@@ -338,7 +340,7 @@ pub mod pallet {
 				// TODO call tracker and check if enough reputation
 				
 				Self::do_transfer_funds_to_treasury(who.clone(), T::MinimumTokensForModeration::get())?;
-				pallet_stat_tracker::Pallet::<T>::update_tokens_moderation(who.clone(), T::MinimumTokensForModeration::get(), false)?;
+				pallet_stat_tracker::Pallet::<T>::update_locked_tokens_moderation(who.clone(), T::MinimumTokensForModeration::get(), false)?;
 				Self::do_create_moderator(who.clone())?; //TODO extract the config get
 				
 				Self::deposit_event(Event::ModeratorRegistered(who));
@@ -377,6 +379,7 @@ pub mod pallet {
 			pub fn create_report(
 				origin: OriginFor<T>,
 				content_id: T::ContentId,
+				content_type: ContentType,
 				reportee_id: T::AccountId,
 				justification: BoundedVec<u8, T::JustificationLimit>,
 				category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
@@ -393,7 +396,7 @@ pub mod pallet {
 					= TryInto::try_into("Moderation".as_bytes().to_vec()).map_err(|_|Error::<T>::BadMetadata)?;
 
 				Self::do_validate_report_data (
-					content_id, justification.clone(), 
+					content_id, content_type, justification.clone(), 
 					category_type.clone(), category_tag_list.clone()
 				)?; //TODO check if report is ongoing
 
@@ -403,8 +406,8 @@ pub mod pallet {
 				let moderator_btree = Self::do_get_moderator_btree()?;
 				let drafted_moderators = Self::do_draft_moderators_from_btree(moderator_btree, T::TotalTierOneModerators::get())?;
 
-				Self::do_create_report(who, content_id, reportee_id, justification, category_tag_list.clone())?;
-				Self::do_create_report_verdict(content_id, Tiers::TierOne, reward_pool.1)?;
+				Self::do_create_report(who, content_id, content_type, reportee_id, justification, category_tag_list.clone())?;
+				Self::do_create_report_verdict(content_id, content_type, Tiers::TierOne, reward_pool.1)?;
 				Self::do_assign_report_to_moderators(content_id, drafted_moderators)?;
 
 				// parse the u32 type into a BoundedVec<u8, T::ContentStringLimit
@@ -427,19 +430,20 @@ pub mod pallet {
 			pub fn submit_vote(
 				origin: OriginFor<T>,
 				content_id: T::ContentId,
+				content_type: ContentType,
 				vote: VoteChoice,
 			) -> DispatchResult {
 				
 				let who = ensure_signed(origin)?;
 				Self::do_can_moderator_vote(who.clone(), content_id)?;
 
-				let tier_data = Self::do_get_current_report_tier_data(content_id)?;
-				Self::do_create_vote(content_id, tier_data.0, who.clone(), vote)?;
+				let tier_data = Self::do_get_current_report_tier_data(content_id, content_type)?;
+				Self::do_create_vote(content_id, content_type, tier_data.0, who.clone(), vote)?;
 				Self::do_deallocate_moderator_from_report(who, content_id)?;
 				
-				if Self::do_are_all_votes_submitted(content_id, tier_data.0)? == true {
-					let consensus = Self::do_calculate_vote_consensus(content_id, tier_data.0)?;
-					Self::do_update_report_status(content_id, consensus)?;
+				if Self::do_are_all_votes_submitted(content_id, content_type, tier_data.0)? == true {
+					let consensus = Self::do_calculate_vote_consensus(content_id, content_type, tier_data.0)?;
+					Self::do_update_report_status(content_id, content_type, consensus)?;
 				}
 
 				Self::deposit_event(Event::VoteSubmitted());
@@ -451,14 +455,15 @@ pub mod pallet {
 			pub fn submit_report_consensus_decision(
 				origin: OriginFor<T>,
 				content_id: T::ContentId,
+				content_type: ContentType,
 				decision: bool,
 			) -> DispatchResult {
 				
 				let who = ensure_signed(origin)?;
-				let consensus = Self::do_check_if_report_verdict_is_acceptable(content_id)?;
-				let is_reporter = Self::do_check_if_reporter_or_reportee(who.clone(), content_id)?;
-				Self::do_can_user_accept_verdict(is_reporter, content_id)?;
-				let tier_data = Self::do_get_current_report_tier_data(content_id)?;
+				let consensus = Self::do_check_if_report_verdict_is_acceptable(content_id, content_type)?;
+				let is_reporter = Self::do_check_if_reporter_or_reportee(who.clone(), content_id, content_type)?;
+				Self::do_can_user_accept_verdict(is_reporter, content_id, content_type)?;
+				let tier_data = Self::do_get_current_report_tier_data(content_id, content_type)?;
 				let report_status : ReportStatus;
 				
 				if decision == false { // appeal verdict
@@ -471,19 +476,19 @@ pub mod pallet {
 				}
 					
 				else { // accept verdict
-					let reporter_id = Self::do_get_reporter(content_id)?;
-					let reportee_id = Self::do_get_reportee(content_id)?;
+					let reporter_id = Self::do_get_reporter(content_id, content_type)?;
+					let reportee_id = Self::do_get_reportee(content_id, content_type)?;
 					report_status = Self::do_get_report_status_on_accept(is_reporter)?;
 					
 					if !is_reporter {
 						let reportee_slash = Self::do_convert_collateral_to_balance()?;
-						Self::do_grab_reportee_collateral(content_id, reportee_slash)?;
+						Self::do_grab_reportee_collateral(content_id, content_type, reportee_slash)?;
 					}
 
 					for tier in tier_data.3 { // iterate all existing tiers
-						let report_voters = Self::do_get_report_voters_by_vote(content_id, tier, consensus)?;
+						let report_voters = Self::do_get_report_voters_by_vote(content_id, content_type, tier, consensus)?;
 						
-						let reward_pool = Self::do_get_total_moderation_pool(content_id, tier)?;
+						let reward_pool = Self::do_get_total_moderation_pool(content_id, content_type, tier)?;
 						let majority_voter_reward = Self::do_calculate_majority_voter_reward(reward_pool, report_voters.0.len() as u32)?;
 						
 						Self::do_distribute_rewards_to_majority_voters(report_voters.0, majority_voter_reward)?;
@@ -502,7 +507,7 @@ pub mod pallet {
 					} 
 					Self::deposit_event(Event::ReportClosed(content_id, report_status));
 				}
-				Self::do_update_report_status(content_id, report_status)?;
+				Self::do_update_report_status(content_id, content_type, report_status)?;
 				
 				Ok(())
 			}
@@ -512,27 +517,28 @@ pub mod pallet {
 			pub fn submit_report_appeal_decision(
 				origin: OriginFor<T>,
 				content_id: T::ContentId,
+				content_type: ContentType,
 				decision: bool,
 			) -> DispatchResult {
 			
 				let who = ensure_signed(origin)?;
-				let consensus = Self::do_check_if_report_appeal_is_acceptable(content_id)?;
-				let is_reporter = Self::do_check_if_reporter_or_reportee(who, content_id)?;
-				Self::do_can_user_accept_appeal(is_reporter, content_id)?;
-				let tier_data = Self::do_get_current_report_tier_data(content_id)?;
+				let consensus = Self::do_check_if_report_appeal_is_acceptable(content_id, content_type)?;
+				let is_reporter = Self::do_check_if_reporter_or_reportee(who, content_id, content_type)?;
+				Self::do_can_user_accept_appeal(is_reporter, content_id, content_type)?;
+				let tier_data = Self::do_get_current_report_tier_data(content_id, content_type)?;
 
 				if decision == false {
-					let reporter_id = Self::do_get_reporter(content_id)?;
-					let reportee_id = Self::do_get_reportee(content_id)?;
+					let reporter_id = Self::do_get_reporter(content_id, content_type)?;
+					let reportee_id = Self::do_get_reportee(content_id, content_type)?;
 
 					if !is_reporter {
 						let reportee_slash = Self::do_convert_collateral_to_balance()?;
-						Self::do_grab_reportee_collateral(content_id, reportee_slash)?;
+						Self::do_grab_reportee_collateral(content_id, content_type, reportee_slash)?;
 					}
 					
 					for tier in tier_data.3 { // TODO extract to helper funcs
-						let report_voters = Self::do_get_report_voters_by_vote(content_id, tier, consensus)?;
-						let reward_pool = Self::do_get_total_moderation_pool(content_id, tier)?;
+						let report_voters = Self::do_get_report_voters_by_vote(content_id, content_type, tier, consensus)?;
+						let reward_pool = Self::do_get_total_moderation_pool(content_id, content_type, tier)?;
 						let majority_voter_reward = Self::do_calculate_majority_voter_reward(reward_pool, report_voters.0.len() as u32)?;
 						
 						Self::do_distribute_rewards_to_majority_voters(report_voters.0, majority_voter_reward)?;
@@ -541,12 +547,12 @@ pub mod pallet {
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
 							Self::do_transfer_funds_from_treasury(reportee_id.clone(), reportee_reward)?;
-							Self::do_update_report_status(content_id, ReportStatus::Refused)?;
+							Self::do_update_report_status(content_id, content_type, ReportStatus::Refused)?;
 						}
 						else {
 							let reporter_reward = Self::do_calculate_reporter_reward(reward_pool)?;
 							Self::do_transfer_funds_from_treasury(reporter_id.clone(), reporter_reward)?;
-							Self::do_update_report_status(content_id, ReportStatus::Accepted)?;
+							Self::do_update_report_status(content_id, content_type, ReportStatus::Accepted)?;
 						}
 					}
 					
@@ -564,11 +570,11 @@ pub mod pallet {
 				else {
 					let appeal_fee = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?.0;
 					if is_reporter {
-						let reporter_id = Self::do_get_reporter(content_id)?;
+						let reporter_id = Self::do_get_reporter(content_id, content_type)?;
 						Self::do_transfer_funds_to_treasury(reporter_id, appeal_fee)?;
 					}
 					else {
-						let reportee_id = Self::do_get_reportee(content_id)?;
+						let reportee_id = Self::do_get_reportee(content_id, content_type)?;
 						Self::do_transfer_funds_to_treasury(reportee_id, appeal_fee)?;
 					}
 
@@ -576,9 +582,9 @@ pub mod pallet {
 					let drafted_moderators = Self::do_draft_moderators_from_btree(moderator_btree, T::TotalTierOneModerators::get())?;
 					let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
 
-					Self::do_create_report_verdict(content_id, tier_data.1, reward_pool.1)?;
+					Self::do_create_report_verdict(content_id, content_type, tier_data.1, reward_pool.1)?;
 					Self::do_assign_report_to_moderators(content_id, drafted_moderators)?;
-					Self::do_update_report_status(content_id, ReportStatus::InResolution)?;
+					Self::do_update_report_status(content_id, content_type, ReportStatus::InResolution)?;
 					Self::deposit_event(Event::ReportAppealAccepted(content_id));
 				}
 				
@@ -699,7 +705,7 @@ pub mod pallet {
 					
 					let moderator = Moderators::<T>::try_get(who.clone()).unwrap();
 					Self::do_transfer_funds_from_treasury(who.clone(), moderator.collateral_tokens)?;
-					pallet_stat_tracker::Pallet::<T>::update_tokens_moderation(who.clone(), BalanceOf::<T>::from(0u32), true)?;
+					pallet_stat_tracker::Pallet::<T>::update_locked_tokens_moderation(who.clone(), BalanceOf::<T>::from(0u32), true)?;
 					Moderators::<T>::remove(who);
 					Ok(())
 				} 
@@ -722,6 +728,7 @@ pub mod pallet {
 
 				pub fn do_validate_report_data(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					_justification: BoundedVec<u8, T::JustificationLimit>,
 					category_type: pallet_tags::CategoryType<T>,
 					category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
@@ -732,7 +739,7 @@ pub mod pallet {
                         category_tag_list.clone()
                     )?;
 
-					ensure!(!Reports::<T>::contains_key(content_id.clone()), Error::<T>::ReportAlreadyOngoing);
+					ensure!(!Reports::<T>::contains_key((content_id, content_type)), Error::<T>::ReportAlreadyOngoing);
 					//TODO check if the justification is not empty
 					Ok(())
 				} 
@@ -740,9 +747,10 @@ pub mod pallet {
 
 				pub fn do_check_if_report_verdict_is_acceptable(
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<ReportStatus, DispatchError> {
 					
-					let report = Reports::<T>::try_get(content_id).unwrap();
+					let report = Reports::<T>::try_get((content_id.clone(), content_type)).unwrap();
 					ensure!(
 						(report.status == ReportStatus::MajorityVotedFor || report.status == ReportStatus::MajorityVotedAgainst), 
 						Error::<T>::NonexistentReport
@@ -753,9 +761,10 @@ pub mod pallet {
 				
 				pub fn do_check_if_report_appeal_is_acceptable(
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<ReportStatus, DispatchError> {
 					
-					let report = Reports::<T>::try_get(content_id).unwrap();
+					let report = Reports::<T>::try_get((content_id.clone(), content_type)).unwrap();
 					ensure!(
 						(report.status == ReportStatus::AppealedByReporter || report.status == ReportStatus::AppealedByReportee), 
 						Error::<T>::NonexistentReport
@@ -767,6 +776,7 @@ pub mod pallet {
 				pub fn do_create_report(
 					who: T::AccountId,
 					content_id: T::ContentId,
+					content_type: ContentType,
 					reportee_id: T::AccountId,
 					justification:BoundedVec<u8, T::JustificationLimit>,
 					category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
@@ -780,7 +790,7 @@ pub mod pallet {
 							status: ReportStatus::InResolution,
 							categories_and_tags: category_tag_list,
 						};
-					Reports::<T>::insert(content_id, report.clone());
+					Reports::<T>::insert((content_id.clone(), content_type), report.clone());
 			
 					Ok(())
 				} 
@@ -788,6 +798,7 @@ pub mod pallet {
 					
 				pub fn do_create_report_verdict(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 					reward_pool: BalanceOf<T>,
 				) -> Result<(), DispatchError> {
@@ -800,7 +811,7 @@ pub mod pallet {
 						votes_for: 0,
 						votes: empty_bounded_votes,
 					};
-					ReportVerdicts::<T>::insert(content_id, tier, report_outcome);
+					ReportVerdicts::<T>::insert((content_id.clone(), content_type), tier, report_outcome);
 			
 					Ok(())
 				} 
@@ -808,21 +819,22 @@ pub mod pallet {
 
 				pub fn do_get_current_report_tier_data(
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<(Tiers, Tiers, bool, Vec<Tiers>), DispatchError> {
 					
-					ensure!(ReportVerdicts::<T>::contains_key(content_id, Tiers::TierOne), Error::<T>::NonexistentReport);
+					ensure!(ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierOne), Error::<T>::NonexistentReport);
 					let mut current_tier = Tiers::TierOne;
 					let mut next_tier = Tiers::TierTwo; // TODO refactor this function
 					let mut is_appealable = true;
 					let mut all_tiers : Vec<Tiers> = vec![Tiers::TierOne];
 
-					if ReportVerdicts::<T>::contains_key(content_id, Tiers::TierThree) { //TODO ensure the report exists
+					if ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierThree) { //TODO ensure the report exists
 						current_tier = Tiers::TierThree; 
 						next_tier = Tiers::TierThree;
 						all_tiers.append(&mut vec![Tiers::TierTwo, Tiers::TierThree]);
 						is_appealable = false
 					}
-					else if ReportVerdicts::<T>::contains_key(content_id, Tiers::TierTwo) {
+					else if ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierTwo) {
 						current_tier = Tiers::TierTwo; 
 						next_tier = Tiers::TierThree;
 						all_tiers.append(&mut vec![Tiers::TierTwo]);
@@ -835,10 +847,11 @@ pub mod pallet {
 				
 				pub fn do_update_report_status(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					report_status: ReportStatus,
 				) -> Result<(), DispatchError> {
 					
-					Reports::<T>::try_mutate_exists(content_id, |report| -> DispatchResult {
+					Reports::<T>::try_mutate_exists((content_id.clone(), content_type), |report| -> DispatchResult {
 						let mut rep = report.as_mut().ok_or(Error::<T>::NonexistentReport)?;
 						rep.status = report_status;
 						Ok(())
@@ -849,11 +862,12 @@ pub mod pallet {
 				pub fn do_check_if_reporter_or_reportee(
 					who: T::AccountId,
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<bool, DispatchError> {
 					
 					let mut is_reporter = true;
 
-					let report = Reports::<T>::try_get(content_id).unwrap();
+					let report = Reports::<T>::try_get((content_id.clone(), content_type)).unwrap();
 					if report.reportee_id == who {
 						is_reporter = false;
 					}
@@ -866,9 +880,10 @@ pub mod pallet {
 				pub fn do_can_user_accept_verdict(
 					is_reporter: bool,
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<(), DispatchError> {
 					
-					let report = Reports::<T>::try_get(content_id).unwrap();
+					let report = Reports::<T>::try_get((content_id.clone(), content_type)).unwrap();
 					if report.status == ReportStatus::MajorityVotedFor {
 						ensure!(!is_reporter, Error::<T>::UserCannotAcceptVerdict);
 					} else if report.status == ReportStatus::MajorityVotedAgainst {
@@ -882,9 +897,10 @@ pub mod pallet {
 				pub fn do_can_user_accept_appeal(
 					is_reporter: bool,
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<(), DispatchError> {
 					
-					let report = Reports::<T>::try_get(content_id).unwrap();
+					let report = Reports::<T>::try_get((content_id.clone(), content_type)).unwrap();
 					if report.status == ReportStatus::AppealedByReporter {
 						ensure!(!is_reporter, Error::<T>::UserCannotAcceptVerdict);
 					} else if report.status == ReportStatus::AppealedByReportee {
@@ -897,18 +913,20 @@ pub mod pallet {
 
 				pub fn do_get_reporter(
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<T::AccountId, DispatchError> {
 
-					let report = Reports::<T>::get(content_id).ok_or(Error::<T>::NonexistentReport)?;
+					let report = Reports::<T>::get((content_id.clone(), content_type)).ok_or(Error::<T>::NonexistentReport)?;
 					Ok(report.reporter_id) // return (reporter/reportee's reward, majority voter rewards per capita)
 				}
 
 				
 				pub fn do_get_reportee(
 					content_id: T::ContentId,
+					content_type: ContentType,
 				) -> Result<T::AccountId, DispatchError> {
 
-					let report = Reports::<T>::get(content_id).ok_or(Error::<T>::NonexistentReport)?;
+					let report = Reports::<T>::get((content_id.clone(), content_type)).ok_or(Error::<T>::NonexistentReport)?;
 					Ok(report.reportee_id) // return (reporter/reportee's reward, majority voter rewards per capita)
 				}
 
@@ -950,6 +968,7 @@ pub mod pallet {
 			
 				pub fn do_create_vote(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 					who: T::AccountId,
 					is_for: VoteChoice,
@@ -960,7 +979,7 @@ pub mod pallet {
 						is_for: is_for,
 					};
 
-					ReportVerdicts::<T>::try_mutate_exists(content_id, tier, |report_outcome| -> DispatchResult {
+					ReportVerdicts::<T>::try_mutate_exists((content_id.clone(), content_type), tier, |report_outcome| -> DispatchResult {
 						let outcome = report_outcome.as_mut().ok_or(Error::<T>::NonexistentReport)?;
 						outcome.votes.try_push(vote).unwrap();
 						if is_for == VoteChoice::For { 
@@ -973,11 +992,12 @@ pub mod pallet {
 				
 				pub fn do_are_all_votes_submitted(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 				) -> Result<bool, DispatchError> {
 
 					let mut are_all_votes_submitted = false;
-					let verdict = ReportVerdicts::<T>::get(content_id, tier).ok_or(Error::<T>::NonexistentReport)?;
+					let verdict = ReportVerdicts::<T>::get((content_id.clone(), content_type), tier).ok_or(Error::<T>::NonexistentReport)?;
 					if verdict.votes.len() == (verdict.required_votes as usize) {are_all_votes_submitted = true;}
 
 					Ok(are_all_votes_submitted)
@@ -986,11 +1006,12 @@ pub mod pallet {
 
 				pub fn do_calculate_vote_consensus(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 				) -> Result<ReportStatus, DispatchError> {
 					
 					let mut result = ReportStatus::MajorityVotedAgainst;
-					let vote_consensus = ReportVerdicts::<T>::get(content_id, tier).ok_or(Error::<T>::NonexistentReport)?;
+					let vote_consensus = ReportVerdicts::<T>::get((content_id.clone(), content_type), tier).ok_or(Error::<T>::NonexistentReport)?;
 					if (vote_consensus.votes_for * 1000) > ((vote_consensus.required_votes * 1000) / 2) as u32  { // TODO use arithmetic
 						result = ReportStatus::MajorityVotedFor;
 					}
@@ -1001,11 +1022,12 @@ pub mod pallet {
 
 				pub fn do_get_report_voters_by_vote(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 					consensus: ReportStatus,
 				) -> Result<(Vec<T::AccountId>, Vec<T::AccountId>), DispatchError> {
 					
-					let mut majority_votes = ReportVerdicts::<T>::try_get(content_id, tier).unwrap().votes.clone();
+					let mut majority_votes = ReportVerdicts::<T>::try_get((content_id.clone(), content_type), tier).unwrap().votes.clone();
 					let mut minority_votes = majority_votes.clone();
 
 					if consensus == ReportStatus::MajorityVotedFor || consensus == ReportStatus::AppealedByReportee {
@@ -1057,10 +1079,11 @@ pub mod pallet {
 
 				pub fn do_grab_reportee_collateral(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					collateral: BalanceOf<T>,
 				) -> Result<(), DispatchError> {
 
-					let report = Reports::<T>::get(content_id).ok_or(Error::<T>::NonexistentReport)?;
+					let report = Reports::<T>::get((content_id.clone(), content_type)).ok_or(Error::<T>::NonexistentReport)?;
 					let reportee = report.reportee_id;
 
 					T::Currency::unreserve(&reportee, collateral); //TODO handle insufficient balance
@@ -1089,7 +1112,7 @@ pub mod pallet {
 						if mod_collateral > min_collateral {
 							reward = mod_collateral.checked_sub(&min_collateral).ok_or(Error::<T>::Overflow)?;
 							moderator.collateral_tokens = mod_collateral.checked_sub(&reward).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_tokens_moderation(moderator_id, BalanceOf::<T>::from(0u32), true)?;
+							pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_moderation(moderator_id.clone(), BalanceOf::<T>::from(0u32), true)?;
 						}
 
 						Ok(())
@@ -1104,10 +1127,11 @@ pub mod pallet {
 
 				pub fn do_get_total_moderation_pool(
 					content_id: T::ContentId,
+					content_type: ContentType,
 					tier: Tiers,
 				) -> Result<BalanceOf<T>, DispatchError> {
 
-					let report_outcome = ReportVerdicts::<T>::get(content_id, tier).ok_or(Error::<T>::NonexistentReport)?;
+					let report_outcome = ReportVerdicts::<T>::get((content_id.clone(), content_type), tier).ok_or(Error::<T>::NonexistentReport)?;
 					Ok(report_outcome.staked_tokens) // return (reporter/reportee's reward, majority voter rewards per capita)
 				}
 			
@@ -1121,7 +1145,7 @@ pub mod pallet {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
 							let moderator = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 							moderator.collateral_tokens = moderator.collateral_tokens.checked_add(&reward).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_tokens_moderation(moderator_id.clone(), reward, false)?;
+							pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_moderation(moderator_id.clone(), reward, false)?;
 							moderator.total_points = moderator.total_points.checked_add(1u32).ok_or(Error::<T>::Overflow)?;
 							if moderator.total_points > 9 {
 								moderator.rank = ModeratorRank::Senior;
@@ -1142,7 +1166,7 @@ pub mod pallet {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
 							let moderator  = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 							moderator.collateral_tokens = moderator.collateral_tokens.checked_sub(&moderator_fee).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_tokens_moderation(moderator_id.clone(), moderator_fee, true)?;
+							pallet_stat_tracker::Pallet::<T>::update_locked_tokens_moderation(moderator_id.clone(), moderator_fee, true)?;
 							
 							moderator.total_points = moderator.total_points.checked_sub(1u32).ok_or(Error::<T>::Overflow)?;
 							if moderator.total_points < 10 {

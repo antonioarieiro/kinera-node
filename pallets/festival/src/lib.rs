@@ -251,7 +251,8 @@ pub mod pallet {
             FestivalHasBegun(T::FestivalId),
             FestivalHasEnded(T::FestivalId), //TODO update to list  
             // FestivalHasEnded(T::FestivalId, BoundedVec<T::AccountId, T::LinkStringLimit>) 
-            FestivalActivated(T::FestivalId, T::AccountId)
+            FestivalActivated(T::FestivalId, T::AccountId),
+            FestivalTokensClaimed(T::AccountId, BalanceOf<T>),
         }
 
 
@@ -265,6 +266,7 @@ pub mod pallet {
             BadMetadata,
             InsufficientBalance,
             WalletStatsRegistryRequired,
+            NotEnoughBalance,
             
             PastStartDate,
             FestivalPeriodTooShort,
@@ -691,6 +693,32 @@ pub mod pallet {
             }
         
 
+
+			#[pallet::weight(10_000)]
+			pub fn claim_festival_rewards(
+				origin: OriginFor<T>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+				
+				let mut reward = BalanceOf::<T>::from(0u32);
+				
+				let claimable_tokens_festival = pallet_stat_tracker::Pallet::<T>::get_wallet_stats(who.clone()).unwrap().claimable_tokens_festival;
+
+				ensure!(
+					T::Currency::transfer(
+						&Self::account_id(), 
+						&who.clone(),
+						claimable_tokens_festival.clone(), 
+						AllowDeath
+					) == Ok(()),
+					Error::<T>::NotEnoughBalance
+				);
+				pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(who.clone(), BalanceOf::<T>::from(0u32), true)?;
+			
+				Self::deposit_event(Event::FestivalTokensClaimed(who, reward));
+				Ok(())
+			}	
             
 
         }
@@ -981,6 +1009,7 @@ pub mod pallet {
                             fest.min_entry,
                             AllowDeath,
                         ) == Ok(()), Error::<T>::InsufficientBalance);
+                        pallet_stat_tracker::Pallet::<T>::update_locked_tokens_festival(who.clone(), fest.min_entry.clone(), false)?;
                         
                         let vote = Vote {
                             voter: who.clone(),
@@ -1051,11 +1080,7 @@ pub mod pallet {
                         let amount = Self::do_calculate_simple_reward(
                             total_lockup, vote.amount, winners_lockup
                         )?;
-                        <T as pallet_stat_tracker::Config>::Currency::transfer(
-                            &treasury, &vote.voter,
-                            amount, KeepAlive,
-                        )?;
-                        pallet_stat_tracker::Pallet::<T>::update_tokens_festival(vote.voter, amount, false)?;
+                        pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(vote.voter, amount, false)?;
                     }
                 }
 

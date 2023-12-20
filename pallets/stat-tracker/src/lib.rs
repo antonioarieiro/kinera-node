@@ -71,18 +71,24 @@ pub mod pallet {
 		//* Enums *//
 		//* Structs *//
 
+
+			// Stats that are bound to a wallet. This is required by many features, to ensure safety.
+			// The "..._public" boolean parameters and the name are both defined by the user upon creation.
+			// The "total_..." and "claimable_..." balance parameters are each updated by the corresponding app feature.
+			// To get the current locked balance, you must do "total_..." - "claimable_..." = "locked_...". 
 			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)] //TODO add type info
 			pub struct Stats<BoundedName, Balance> {
 				pub is_name_public: bool,
 				pub is_wallet_public: bool,
 				pub name: BoundedName,
-				pub reputation: u32,
 				
-				pub total_tokens_moderation: Balance,
+				pub reputation: u32,
+
+				pub locked_tokens_moderation: Balance,
 				pub claimable_tokens_moderation: Balance,
-				pub total_tokens_festival: Balance,
+				pub locked_tokens_festival: Balance,
 				pub claimable_tokens_festival: Balance,
-				pub total_tokens_ranking: Balance,
+				pub locked_tokens_ranking: Balance,
 				pub claimable_tokens_ranking: Balance,
 			}
 
@@ -169,11 +175,11 @@ pub mod pallet {
 					name: name.clone(),
 					reputation: T::DefaultReputation::get(),
 
-					total_tokens_moderation: zero_balance.clone(),
+					locked_tokens_moderation: zero_balance.clone(),
 					claimable_tokens_moderation: zero_balance.clone(),
-					total_tokens_festival: zero_balance.clone(),
+					locked_tokens_festival: zero_balance.clone(),
 					claimable_tokens_festival: zero_balance.clone(),
-					total_tokens_ranking: zero_balance.clone(),
+					locked_tokens_ranking: zero_balance.clone(),
 					claimable_tokens_ranking: zero_balance,
 				};
 				WalletStats::<T>::insert(who.clone(), stats.clone());
@@ -313,13 +319,53 @@ pub mod pallet {
 			
 
 
+			//* Ranking Tokens *//
 
-			//TODO update the 3 "update_claimable" functions using & to acess memory of the exact variable, instead of having 3 funcs
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
 			// Updates the values for the ranking section of tokens.
 			// If the value is 0, the claimable tokens are reset to 0.
 			// Any other value is added to the "claimable_tokens" pool if positive,
 			// and subtracted if negative.
-			pub fn update_tokens_ranking(
+			pub fn update_locked_tokens_ranking(
+				who: T::AccountId,
+				locked_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_locked = wallet_stats.locked_tokens_ranking;
+
+					// reset the locked tokens back to 0
+					if locked_tokens == BalanceOf::<T>::from(0u32) {
+						current_locked = BalanceOf::<T>::from(0u32);
+					}
+					else if is_slash {
+						current_locked = 
+							current_locked
+							.checked_sub(&locked_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					else {
+						current_locked = 
+							current_locked
+							.checked_add(&locked_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+					}
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
+			// Updates the values for the ranking section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.
+			pub fn update_claimable_tokens_ranking(
 				who: T::AccountId,
 				claimable_tokens: BalanceOf<T>,
 				is_slash: bool,
@@ -329,38 +375,65 @@ pub mod pallet {
 					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
 					let mut current_claimable = wallet_stats.claimable_tokens_ranking;
 
-					// reset the claimable tokens back to 0
+					// reset the locked tokens back to 0
 					if claimable_tokens == BalanceOf::<T>::from(0u32) {
 						current_claimable = BalanceOf::<T>::from(0u32);
 					}
-					// decrement both the claimable tokens and the total tokens
-					
 					else if is_slash {
 						current_claimable = 
 							current_claimable
 							.checked_sub(&claimable_tokens)
 							.ok_or(Error::<T>::Underflow)?;
-						
-						let mut total_tokens = wallet_stats.total_tokens_ranking;
-						total_tokens = 
-							total_tokens
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
 					}
-					// increment both the claimable tokens and the total tokens
 					else {
 						current_claimable = 
 							current_claimable
 							.checked_add(&claimable_tokens)
 							.ok_or(Error::<T>::Overflow)?;
-						
-						let mut total_tokens = wallet_stats.total_tokens_ranking;
-						total_tokens = 
-							total_tokens
-							.checked_add(&claimable_tokens)
+					}
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+			
+
+
+
+			//* Festival Tokens *//
+
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
+			// Updates the values for the festival section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.
+			pub fn update_locked_tokens_festival(
+				who: T::AccountId,
+				locked_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_locked = wallet_stats.locked_tokens_festival;
+
+					// reset the locked tokens back to 0
+					if locked_tokens == BalanceOf::<T>::from(0u32) {
+						current_locked = BalanceOf::<T>::from(0u32);
+					}
+					else if is_slash {
+						current_locked = 
+							current_locked
+							.checked_sub(&locked_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					else {
+						current_locked = 
+							current_locked
+							.checked_add(&locked_tokens)
 							.ok_or(Error::<T>::Overflow)?;
 					}
-					
 
 					Ok(())
 				})?;
@@ -369,12 +442,12 @@ pub mod pallet {
 			}
 
 
-
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
 			// Updates the values for the festival section of tokens.
 			// If the value is 0, the claimable tokens are reset to 0.
 			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.ool.
-			pub fn update_tokens_festival(
+			// and subtracted if negative.
+			pub fn update_claimable_tokens_festival(
 				who: T::AccountId,
 				claimable_tokens: BalanceOf<T>,
 				is_slash: bool,
@@ -384,35 +457,21 @@ pub mod pallet {
 					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
 					let mut current_claimable = wallet_stats.claimable_tokens_festival;
 
-					// reset the claimable tokens back to 0
-					if claimable_tokens > BalanceOf::<T>::from(0u32) {
+					// reset the locked tokens back to 0
+					if claimable_tokens == BalanceOf::<T>::from(0u32) {
 						current_claimable = BalanceOf::<T>::from(0u32);
 					}
-					// decrement both the claimable tokens and the total tokens
 					else if is_slash {
 						current_claimable = 
 							current_claimable
 							.checked_sub(&claimable_tokens)
 							.ok_or(Error::<T>::Underflow)?;
-						
-						let mut total_tokens = wallet_stats.total_tokens_festival;
-						total_tokens = 
-							total_tokens
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
 					}
-					// increment both the claimable tokens and the total tokens
 					else {
 						current_claimable = 
-						current_claimable
-						.checked_add(&claimable_tokens)
-						.ok_or(Error::<T>::Overflow)?;
-					
-						let mut total_tokens = wallet_stats.total_tokens_festival;
-						total_tokens = 
-							total_tokens
+							current_claimable
 							.checked_add(&claimable_tokens)
-							.ok_or(Error::<T>::Overflow)?;			
+							.ok_or(Error::<T>::Overflow)?;
 					}
 
 					Ok(())
@@ -423,11 +482,56 @@ pub mod pallet {
 
 
 
+
+
+			//* Moderation Tokens *//
+
+
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
 			// Updates the values for the moderation section of tokens.
 			// If the value is 0, the claimable tokens are reset to 0.
 			// Any other value is added to the "claimable_tokens" pool if positive,
 			// and subtracted if negative.
-			pub fn update_tokens_moderation(
+			pub fn update_locked_tokens_moderation(
+				who: T::AccountId,
+				locked_tokens: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+
+				WalletStats::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
+					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let mut current_locked = wallet_stats.locked_tokens_moderation;
+
+					// reset the locked tokens back to 0
+					if locked_tokens == BalanceOf::<T>::from(0u32) {
+						current_locked = BalanceOf::<T>::from(0u32);
+					}
+					else if is_slash {
+						current_locked = 
+							current_locked
+							.checked_sub(&locked_tokens)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					else {
+						current_locked = 
+							current_locked
+							.checked_add(&locked_tokens)
+							.ok_or(Error::<T>::Overflow)?;
+					}
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
+			// Updates the values for the moderation section of tokens.
+			// If the value is 0, the claimable tokens are reset to 0.
+			// Any other value is added to the "claimable_tokens" pool if positive,
+			// and subtracted if negative.
+			pub fn update_claimable_tokens_moderation(
 				who: T::AccountId,
 				claimable_tokens: BalanceOf<T>,
 				is_slash: bool,
@@ -437,44 +541,31 @@ pub mod pallet {
 					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
 					let mut current_claimable = wallet_stats.claimable_tokens_moderation;
 
+					// reset the locked tokens back to 0
 					if claimable_tokens == BalanceOf::<T>::from(0u32) {
 						current_claimable = BalanceOf::<T>::from(0u32);
 					}
-					// decrement both the claimable tokens and the total tokens
-					if is_slash {
+					else if is_slash {
 						current_claimable = 
 							current_claimable
 							.checked_sub(&claimable_tokens)
 							.ok_or(Error::<T>::Underflow)?;
-						
-						let mut total_tokens = wallet_stats.total_tokens_moderation;
-						total_tokens = 
-							total_tokens
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-						
 					}
-					// increment both the claimable tokens and the total tokens
 					else {
 						current_claimable = 
 							current_claimable
 							.checked_add(&claimable_tokens)
 							.ok_or(Error::<T>::Overflow)?;
-						
-						let mut total_tokens = wallet_stats.total_tokens_moderation;
-						total_tokens = 
-							total_tokens
-							.checked_add(&claimable_tokens)
-							.ok_or(Error::<T>::Overflow)?;
 					}
-					// reset the claimable tokens back to 0
-					
 
 					Ok(())
 				})?;
 
 				Ok(())
 			}
+
+
+			// update_tokens_moderation
 
 
 
