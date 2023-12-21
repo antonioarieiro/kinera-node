@@ -66,7 +66,7 @@ parameter_types! {
 	pub const DescStringLimit: u32 = 1000;
 	pub const MaxMoviesInFest: u32 = 1000;
 	pub const MaxOwnedFestivals: u32 = 10;
-	pub const MinFesBlockDuration: u32 = 1000;
+	pub const MinFesBlockDuration: u32 = 100;
 	pub const MaxFestivalsPerBlock: u32 = 500;
 	pub const MaxVotes: u32 = 10000;
 	pub const FestBlockSafetyMargin: u32 = 50;

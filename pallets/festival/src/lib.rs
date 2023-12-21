@@ -124,12 +124,14 @@ pub mod pallet {
             // AwaitingStartBlock -> The festival has been activated and is awaiting the start block to become "Active".
             // Active -> The festival is currently active and can be voted on.
             // Finished -> The festival has concluded.
+            // FinishedNotEnoughVotes -> The festival has concluded, but without the minimum amount of votes to determine a winner.
             #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
             pub enum FestivalStatus {
                 AwaitingActivation,
                 AwaitingStartBlock,
                 Active,
                 Finished,
+                FinishedNotEnoughVotes,
             }
         
         //* Structs *//
@@ -597,7 +599,7 @@ pub mod pallet {
 				// );
 
                 Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
-                    let fes = festival.as_mut().ok_or(Error::<T>::BadMetadata)?;
+                    let fes = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                     ensure!(
                         fes.status == FestivalStatus::AwaitingActivation,
                         Error::<T>::FestivalNotAcceptingNewMovies
@@ -740,7 +742,6 @@ pub mod pallet {
                     status: FestivalStatus,
                 ) -> Result<T::FestivalId, DispatchError> {
 
-                    //TODO put everything inside this try_mutate
                     let festival_id =
                         NextFestivalId::<T>::try_mutate(|id| -> Result<T::FestivalId, DispatchError> {
                             let current_id = *id;
@@ -827,15 +828,14 @@ pub mod pallet {
                     end_block: T::BlockNumber
                 ) -> Result<(), DispatchError> {
                     
-                    //TODO #Block
-                    //TODO check contains
-                    //TODO add new entry
-
-
                     // check if any entries exist for the start block and push the movie if true
-                    if BlockAssignments::<T>::contains_key(start_block) == true {
-                        let mut start_assignments = BlockAssignments::<T>::try_get(start_block).unwrap(); //TODO optimize
-                        start_assignments.to_start.try_push(festival_id).unwrap();
+                    if BlockAssignments::<T>::contains_key(start_block) {
+                        BlockAssignments::<T>::mutate_exists(start_block, |assignments| -> DispatchResult {
+                            let start_assignments = assignments.as_mut().ok_or(Error::<T>::BadMetadata)?;
+                            
+                            start_assignments.to_start.try_push(festival_id).unwrap();
+                            Ok(())
+                        })?;
                     }
                     // create a new entry for the start block if none exist and then push the movie
                     else {
@@ -854,9 +854,13 @@ pub mod pallet {
 
                     
                     // check if any entries exist for the end block and push the movie if true
-                    if BlockAssignments::<T>::contains_key(end_block) == true {
-                        let mut end_assignments = BlockAssignments::<T>::try_get(end_block).unwrap(); //TODO optimize
-                        end_assignments.to_end.try_push(festival_id).unwrap();
+                    if BlockAssignments::<T>::contains_key(end_block) {
+                        BlockAssignments::<T>::mutate_exists(end_block, |assignments| -> DispatchResult {
+                            let end_block_assignments = assignments.as_mut().ok_or(Error::<T>::BadMetadata)?;
+                            
+                            end_block_assignments.to_end.try_push(festival_id).unwrap();
+                            Ok(())
+                        })?;
                     }
                     // create a new entry for the end block if none exist and then push the movie
                     else {
@@ -912,7 +916,7 @@ pub mod pallet {
 
                     let festivals = fests.unwrap();
                     for festival_id in festivals.to_start.iter() {
-                        Festivals::<T>::try_mutate_exists( festival_id,|festival| -> DispatchResult{
+                        Festivals::<T>::try_mutate_exists( festival_id,|festival| -> DispatchResult {
                             let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
 
                             let is_fest_new = fest.status == FestivalStatus::AwaitingStartBlock;
@@ -951,40 +955,61 @@ pub mod pallet {
                     
                     let fests = BlockAssignments::<T>::try_get(now);
                     ensure!(fests.is_ok(), Error::<T>::NonexistentFestival);
+                    
                     let festivals = fests.unwrap();
                     for festival_id in festivals.to_end.iter() {
                         Festivals::<T>::try_mutate_exists( festival_id,|festival| -> DispatchResult{
                             let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                             
-                            ensure!(
-                                fest.status == FestivalStatus::Active, Error::<T>::FestivalNotActive);
-                        
-                            if fest.vote_list.len() > 0 {
-                                Self::do_resolve_market(festival_id.clone())?;
-                            }
-                            
-                            // update the festival ownership status
-                            WalletFestivalData::<T>::try_mutate_exists( fest.owner.clone(), |wal_data| -> DispatchResult{
-                                let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                            if fest.status == FestivalStatus::Active {
                                 
-                                //filter the movie from the awaiting activation list
-                                wallet_data.active_festivals.retain(
-                                    |fes_id| 
-                                    fes_id != &festival_id.clone()
-                                );
-                                wallet_data.finished_festivals.try_push(festival_id.clone()).unwrap();
+                                // update the festival ownership status
+                                Self::do_active_to_finished_fest_ownership(fest.owner.clone(), festival_id.clone());
                                 
-                                Ok(())
-                            })?;
+                                if fest.vote_list.len() > 0 {
+                                    fest.status = FestivalStatus::Finished;
+                                    Self::do_resolve_market(festival_id.clone())?;
+                                }
+                                else {
+                                    fest.status = FestivalStatus::FinishedNotEnoughVotes;
+                                }
 
-                            fest.status = FestivalStatus::Finished;
-                            Self::deposit_event(Event::FestivalHasEnded(festival_id.clone()));
+                                Self::deposit_event(Event::FestivalHasEnded(festival_id.clone()));
+                            }
+
                             Ok(())
                         })?;
                     }
                     
                     Ok(())
                 }
+
+
+                // This function is isolated so that if it fails, the rest of the festivals
+                // in the hook are not compromised.
+                //TODO check is this safely fails to run.
+                fn do_active_to_finished_fest_ownership(
+                    owner: T::AccountId,
+                    festival_id : T::FestivalId
+                ) -> DispatchResult {
+                    
+                    // update the festival ownership status
+                    WalletFestivalData::<T>::try_mutate_exists(owner, |wal_data| -> DispatchResult{
+                        let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
+                        
+                        //filter the movie from the awaiting activation list
+                        wallet_data.active_festivals.retain(
+                            |fes_id| 
+                            fes_id != &festival_id.clone()
+                        );
+                        wallet_data.finished_festivals.try_push(festival_id.clone()).unwrap();
+                        
+                        Ok(())
+                    })?;
+
+                    Ok(())
+                }
+
 
 
 

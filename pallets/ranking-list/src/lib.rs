@@ -541,6 +541,7 @@ pub mod pallet {
 			}
 
 
+
 			#[pallet::weight(10_000)]
 			pub fn vote_for(
 				origin: OriginFor<T>,
