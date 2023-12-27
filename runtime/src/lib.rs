@@ -999,10 +999,10 @@ parameter_types! {
 	pub const DescStringLimit: u32 = 1000;
 	pub const MaxMoviesInFest: u32 = 1000;
 	pub const MaxOwnedFestivals: u32 = 10;
-	pub const MinFesBlockDuration: u32 = 1800;
+	pub const MinFesBlockDuration: u32 = 600;
 	pub const FestBlockSafetyMargin: u32 = 25;
 	pub const MaxFestivalsPerBlock: u32 = 500;
-	pub const MaxVotes: u32 = 10000;
+	pub const MaxVotes: u32 = 100000;
 	pub const PalletFestivalId: PalletId = PalletId(*b"FesStash");
 }
 

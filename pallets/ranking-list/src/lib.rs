@@ -6,6 +6,20 @@
 	//TODO improve Deadlines
 	//TODO optimize
 
+	//TODO
+
+	// mint_into(
+	// 	asset: Self::AssetId,
+	// 	who: &<T as SystemConfig>::AccountId,
+	// 	amount: Self::Balance
+	// ) -> DispatchResult
+
+	// frame_support::traits::tokens::fungible::Mutate::mint_into(
+	// 	// Self::AssetId,
+	// 	&Self::account_id(), 
+	// 	amount.clone(),
+	// );
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -574,7 +588,7 @@ pub mod pallet {
 						Error::<T>::NotEnoughBalance
 					);
 					pallet_stat_tracker::Pallet::<T>::update_locked_tokens_ranking(who.clone(), amount.clone(), false)?;
-					
+
 
 					// create the Vote
 					let vote = RankingVote {
@@ -617,7 +631,7 @@ pub mod pallet {
 				
 				let mut reward = BalanceOf::<T>::from(0u32);
 				
-				let claimable_tokens_ranking = pallet_stat_tracker::Pallet::<T>::get_wallet_stats(who.clone()).unwrap().claimable_tokens_ranking;
+				let claimable_tokens_ranking = pallet_stat_tracker::Pallet::<T>::get_wallet_tokens(who.clone()).unwrap().claimable_tokens_ranking;
 
 				ensure!(
 					T::Currency::transfer(

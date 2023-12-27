@@ -10,6 +10,8 @@
     //TODO change min_entry name to min_vote_cost
     //TODO check if min_entry vote price is higher than 0
     //TODO check if no duplicate movies in extrinsic param when adding movies
+    //TODO change the "FestivalHasEnded" event to emit (winning_movie, voter) tuples
+
     //TODO check
     // let stakers = initial_authorities
     // .iter()
@@ -203,7 +205,7 @@ pub mod pallet {
                         BoundedVec<u8, T::NameStringLimit>, //TODO change NameStringLimit to Desc, currently BoundedDescString
                         FestivalStatus,
                         BalanceOf<T>, //BalanceOf
-                        BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxMoviesInFest>, //VoteList
+                        BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotes>, //VoteList
                         BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>, //CategoryTagList
                         BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>, //MoviesInFest
                     >,
@@ -251,8 +253,9 @@ pub mod pallet {
             MoviesAddedToFestival(T::FestivalId, T::AccountId),
             VotedForMovieInFestival(T::FestivalId, BoundedVec<u8, T::LinkStringLimit>, T::AccountId),
             FestivalHasBegun(T::FestivalId),
-            FestivalHasEnded(T::FestivalId), //TODO update to list  
-            // FestivalHasEnded(T::FestivalId, BoundedVec<T::AccountId, T::LinkStringLimit>) 
+            // FestivalHasEnded(T::FestivalId), //TODO update to list  
+            FestivalHasEnded(T::FestivalId, BoundedVec<T::AccountId, T::MaxVotes>), 
+            FestivalHasEndedUnsuccessfully(T::FestivalId),
             FestivalActivated(T::FestivalId, T::AccountId),
             FestivalTokensClaimed(T::AccountId, BalanceOf<T>),
         }
@@ -705,7 +708,7 @@ pub mod pallet {
 				
 				let mut reward = BalanceOf::<T>::from(0u32);
 				
-				let claimable_tokens_festival = pallet_stat_tracker::Pallet::<T>::get_wallet_stats(who.clone()).unwrap().claimable_tokens_festival;
+				let claimable_tokens_festival = pallet_stat_tracker::Pallet::<T>::get_wallet_tokens(who.clone()).unwrap().claimable_tokens_festival;
 
 				ensure!(
 					T::Currency::transfer(
@@ -755,7 +758,7 @@ pub mod pallet {
                     let bounded_film_list: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>
                         = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                     
-                    let bounded_vote_list: BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxMoviesInFest>
+                    let bounded_vote_list: BoundedVec<Vote<T::AccountId, BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotes>
                         = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                     
                     let zero_lockup = BalanceOf::<T>::from(0u32);
@@ -966,15 +969,16 @@ pub mod pallet {
                                 // update the festival ownership status
                                 Self::do_active_to_finished_fest_ownership(fest.owner.clone(), festival_id.clone());
                                 
-                                if fest.vote_list.len() > 0 {
+                                if fest.vote_list.len() > 1 {
                                     fest.status = FestivalStatus::Finished;
-                                    Self::do_resolve_market(festival_id.clone())?;
+                                    let winners_list = Self::do_resolve_market(festival_id.clone())?;
+                                    Self::deposit_event(Event::FestivalHasEnded(festival_id.clone(), winners_list));
                                 }
                                 else {
                                     fest.status = FestivalStatus::FinishedNotEnoughVotes;
+                                    Self::deposit_event(Event::FestivalHasEndedUnsuccessfully(festival_id.clone()));
                                 }
 
-                                Self::deposit_event(Event::FestivalHasEnded(festival_id.clone()));
                             }
 
                             Ok(())
@@ -1091,32 +1095,35 @@ pub mod pallet {
             /* Votes */
 
             fn do_resolve_market(
-                festival_id : T::FestivalId
-            ) -> DispatchResult {
+                festival_id: T::FestivalId
+            ) -> Result<BoundedVec<T::AccountId, T::MaxVotes>, DispatchError> {
                 
                 let winning_opts = Self::do_get_winning_options(festival_id).unwrap();
                 let winners_lockup = Self::do_get_winners_total_lockup(festival_id, winning_opts.clone()).unwrap();
+                let mut winner_list : BoundedVec<T::AccountId, T::MaxVotes>
+                    = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                 
                 let festival = Festivals::<T>::try_get(festival_id).unwrap();
                 let total_lockup = festival.total_lockup;
-                let treasury = &Self::account_id();
+
                 for vote in festival.vote_list { 
                     if winning_opts.contains(&vote.vote_for.clone()) {
                         let amount = Self::do_calculate_simple_reward(
                             total_lockup, vote.amount, winners_lockup
                         )?;
-                        pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(vote.voter, amount, false)?;
+                        pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(vote.voter.clone(), amount, false)?;
+                        winner_list.try_push(vote.voter).unwrap();
                     }
                 }
 
                 //TODO add event
-                Ok(())
+                Ok(winner_list)
             }
 
 
             fn do_get_winning_options(
                 festival_id : T::FestivalId
-            ) -> Result<Vec<BoundedVec<u8, T::LinkStringLimit>>,DispatchError>{
+            ) -> Result<Vec<BoundedVec<u8, T::LinkStringLimit>>,DispatchError> {
             
                 let mut accumulator = BTreeMap::new();
 
