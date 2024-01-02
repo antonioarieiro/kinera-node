@@ -69,6 +69,27 @@ pub mod pallet {
 
 		//* Constants *//
 		//* Enums *//
+
+			// Allows the desambiguation of feature types.
+			// Particularly useful for updating tokens values 
+			// related to wallets.	
+			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+			pub enum FeatureType {
+				Festival,
+				RankingList,
+				Moderation,
+				Movie,
+			}
+			
+			// Allows the desambiguation of token types.
+			// Particularly useful for updating tokens values 
+			// related to wallets.		
+			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+			pub enum TokenType {
+				Locked,
+				Claimable,
+			}
+
 		//* Structs *//
 
 
@@ -84,7 +105,7 @@ pub mod pallet {
 			
 			// The "total_..." and "claimable_..." balance parameters are each updated by the corresponding app feature.
 			// To get the current locked balance, you must do "total_..." - "claimable_..." = "locked_...". 
-			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)] //TODO add type info
+			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo,)] //TODO add type info
 			pub struct Tokens<Balance> {
 				pub reputation: u32,
 				pub locked_tokens_moderation: Balance,
@@ -93,6 +114,8 @@ pub mod pallet {
 				pub claimable_tokens_festival: Balance,
 				pub locked_tokens_ranking: Balance,
 				pub claimable_tokens_ranking: Balance,
+				pub locked_tokens_movie: Balance,
+				pub claimable_tokens_movie: Balance,
 			}
 
 
@@ -158,7 +181,11 @@ pub mod pallet {
 		pub enum Error<T> {
 			WalletAlreadyRegistered,
 			WalletNotRegisteredStatTracker,
+			WalletStatsNotFound,
+			WalletTokensNotFound,
+
 			DraftedModeratorNotRegistered,
+
 			BadMetadata,
 			Overflow,
 			Underflow,
@@ -200,7 +227,7 @@ pub mod pallet {
 				};
 				WalletStats::<T>::insert(who.clone(), stats.clone());
 
-				if !WalletStats::<T>::contains_key(who.clone()) {
+				if !WalletTokens::<T>::contains_key(who.clone()) {
 					let zero_balance = BalanceOf::<T>::from(0u32);
 					let tokens = Tokens {
 						reputation: T::DefaultReputation::get(),
@@ -209,7 +236,9 @@ pub mod pallet {
 						locked_tokens_festival: zero_balance.clone(),
 						claimable_tokens_festival: zero_balance.clone(),
 						locked_tokens_ranking: zero_balance.clone(),
-						claimable_tokens_ranking: zero_balance,
+						claimable_tokens_ranking: zero_balance.clone(),
+						locked_tokens_movie: zero_balance.clone(),
+						claimable_tokens_movie: zero_balance,
 					};
 					WalletTokens::<T>::insert(who.clone(), tokens.clone());
 				};
@@ -273,7 +302,7 @@ pub mod pallet {
 				);
 
 				WalletStats::<T>::try_mutate(who.clone(), |wallet_stats| -> DispatchResult {
-					let stats = wallet_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
+					let stats = wallet_stats.as_mut().ok_or(Error::<T>::WalletStatsNotFound)?;
 
 					// update the wallet's data
 					stats.is_name_public = is_name_public;
@@ -305,7 +334,7 @@ pub mod pallet {
 			// 	let who = ensure_signed(origin)?;
 
 			// 	WalletTokens::<T>::try_mutate_exists(who.clone(), |wallet_tokens| -> DispatchResult {
-			// 		let tokens = wallet_tokens.as_mut().ok_or(Error::<T>::BadMetadata)?;
+			// 		let tokens = wallet_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
 
 			// 		let zero_balance = BalanceOf::<T>::from(0u32);
 					
@@ -402,260 +431,158 @@ pub mod pallet {
 				Ok(WalletStats::<T>::contains_key(who))
 			}
 			
+
+
+
+			// Used to abstract the "update_token" functions.
+			// This allows a single function to manage all 
+			// the different types of tokens.
+			pub fn update_wallet_tokens_by_feature_type(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				token_type: TokenType,
+				token_change: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult {
+				
+
+				// this is the first instance where the wallet's tokens are updated
+				if !WalletTokens::<T>::contains_key(who.clone()) {
+
+					let zero_balance = BalanceOf::<T>::from(0u32);
+					let mut wallet_tokens = Tokens {
+						reputation: T::DefaultReputation::get(),
+						locked_tokens_moderation: zero_balance.clone(),
+						claimable_tokens_moderation: zero_balance.clone(),
+						locked_tokens_festival: zero_balance.clone(),
+						claimable_tokens_festival: zero_balance.clone(),
+						locked_tokens_ranking: zero_balance.clone(),
+						claimable_tokens_ranking: zero_balance.clone(),
+						locked_tokens_movie: zero_balance.clone(),
+						claimable_tokens_movie: zero_balance,
+					};
+
+					match (feature_type, token_type) {
+						(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = token_change.clone(),
+						(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = token_change.clone(),
+	
+						(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = token_change.clone(),
+						(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = token_change.clone(),
+						
+						(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = token_change.clone(),
+						(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = token_change.clone(),
+						
+						(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = token_change.clone(),
+						(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = token_change.clone(),
+					};
+
+					//TODO add negative integer use case 
+					// (FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
+					// zero_balance.clone()
+					// .checked_sub(&total_tokens.clone())
+					// .ok_or(Error::<T>::Underflow)?,
+
+					WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
+				}
+
+				// the wallet already contains an entry, retrieve & update
+				else {
+					WalletTokens::<T>::try_mutate(who, |wal_tokens| -> DispatchResult {
+						let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
+						
+						// dynamically select which token variable to update
+						match (feature_type, token_type) {
+							(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
+								Self::update_token_value(
+									wallet_tokens.locked_tokens_festival.clone(),
+									token_change,
+									is_slash,
+								)?,
+							(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = 
+								Self::update_token_value(
+									wallet_tokens.claimable_tokens_festival.clone(),
+									token_change,
+									is_slash,
+								)?,
+		
+							(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = 
+								Self::update_token_value(
+									wallet_tokens.locked_tokens_ranking.clone(),
+									token_change,
+									is_slash,
+								)?, 
+							(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = 
+								Self::update_token_value(
+									wallet_tokens.claimable_tokens_ranking.clone(),
+									token_change,
+									is_slash,
+								)?,
+							
+							(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = 
+								Self::update_token_value(
+									wallet_tokens.locked_tokens_moderation.clone(),
+									token_change,
+									is_slash,
+								)?,
+							(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = 
+								Self::update_token_value(
+									wallet_tokens.claimable_tokens_moderation.clone(),
+									token_change,
+									is_slash,
+								)?,
+
+							(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = 
+								Self::update_token_value(
+									wallet_tokens.locked_tokens_movie.clone(),
+									token_change,
+									is_slash,
+								)?,
+							(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = 
+								Self::update_token_value(
+									wallet_tokens.claimable_tokens_movie.clone(),
+									token_change,
+									is_slash,
+								)?,
+						};
+	
+						
+	
+						Ok(())
+					})?;
+				}
+
+
+				Ok(())
+			}
+
 			
 
-
-			//* Ranking Tokens *//
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the ranking section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_locked_tokens_ranking(
-				who: T::AccountId,
-				locked_tokens: BalanceOf<T>,
+			pub fn update_token_value(
+				mut current_tokens: BalanceOf<T>,
+				token_change: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult {
+			) -> Result<BalanceOf::<T>, DispatchError>  {
 
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_locked = wallet_stats.locked_tokens_ranking;
+				// reset the locked tokens back to 0
+				
+				if token_change == BalanceOf::<T>::from(0u32) {
+					current_tokens = BalanceOf::<T>::from(0u32);
+				}
+				else if is_slash {
+					current_tokens =
+						current_tokens.clone()
+						.checked_sub(&token_change)
+						.ok_or(Error::<T>::Underflow)?;
+				}
+				else {
+					current_tokens =
+						current_tokens.clone()
+						.checked_add(&token_change)
+						.ok_or(Error::<T>::Overflow)?;
+				}
 
-					// reset the locked tokens back to 0
-					if locked_tokens == BalanceOf::<T>::from(0u32) {
-						current_locked = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_locked = 
-							current_locked
-							.checked_sub(&locked_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_locked = 
-							current_locked
-							.checked_add(&locked_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
+				Ok(current_tokens)
 			}
-
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the ranking section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_claimable_tokens_ranking(
-				who: T::AccountId,
-				claimable_tokens: BalanceOf<T>,
-				is_slash: bool,
-			) -> DispatchResult {
-
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_claimable = wallet_stats.claimable_tokens_ranking;
-
-					// reset the locked tokens back to 0
-					if claimable_tokens == BalanceOf::<T>::from(0u32) {
-						current_claimable = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_claimable = 
-							current_claimable
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_claimable = 
-							current_claimable
-							.checked_add(&claimable_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
-			}
-			
-
-
-
-			//* Festival Tokens *//
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the festival section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_locked_tokens_festival(
-				who: T::AccountId,
-				locked_tokens: BalanceOf<T>,
-				is_slash: bool,
-			) -> DispatchResult {
-
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_locked = wallet_stats.locked_tokens_festival;
-
-					// reset the locked tokens back to 0
-					if locked_tokens == BalanceOf::<T>::from(0u32) {
-						current_locked = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_locked = 
-							current_locked
-							.checked_sub(&locked_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_locked = 
-							current_locked
-							.checked_add(&locked_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
-			}
-
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the festival section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_claimable_tokens_festival(
-				who: T::AccountId,
-				claimable_tokens: BalanceOf<T>,
-				is_slash: bool,
-			) -> DispatchResult {
-
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_claimable = wallet_stats.claimable_tokens_festival;
-
-					// reset the locked tokens back to 0
-					if claimable_tokens == BalanceOf::<T>::from(0u32) {
-						current_claimable = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_claimable = 
-							current_claimable
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_claimable = 
-							current_claimable
-							.checked_add(&claimable_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
-			}
-
-
-
-
-
-			//* Moderation Tokens *//
-
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the moderation section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_locked_tokens_moderation(
-				who: T::AccountId,
-				locked_tokens: BalanceOf<T>,
-				is_slash: bool,
-			) -> DispatchResult {
-
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_locked = wallet_stats.locked_tokens_moderation;
-
-					// reset the locked tokens back to 0
-					if locked_tokens == BalanceOf::<T>::from(0u32) {
-						current_locked = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_locked = 
-							current_locked
-							.checked_sub(&locked_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_locked = 
-							current_locked
-							.checked_add(&locked_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
-			}
-
-
-			//TODO update the "update_..." functions using & to acess memory of the exact variable, instead of having 3 funcs
-			// Updates the values for the moderation section of tokens.
-			// If the value is 0, the claimable tokens are reset to 0.
-			// Any other value is added to the "claimable_tokens" pool if positive,
-			// and subtracted if negative.
-			pub fn update_claimable_tokens_moderation(
-				who: T::AccountId,
-				claimable_tokens: BalanceOf<T>,
-				is_slash: bool,
-			) -> DispatchResult {
-
-				WalletTokens::<T>::try_mutate_exists(who, |wal_stats| -> DispatchResult {
-					let wallet_stats = wal_stats.as_mut().ok_or(Error::<T>::BadMetadata)?;
-					let mut current_claimable = wallet_stats.claimable_tokens_moderation;
-
-					// reset the locked tokens back to 0
-					if claimable_tokens == BalanceOf::<T>::from(0u32) {
-						current_claimable = BalanceOf::<T>::from(0u32);
-					}
-					else if is_slash {
-						current_claimable = 
-							current_claimable
-							.checked_sub(&claimable_tokens)
-							.ok_or(Error::<T>::Underflow)?;
-					}
-					else {
-						current_claimable = 
-							current_claimable
-							.checked_add(&claimable_tokens)
-							.ok_or(Error::<T>::Overflow)?;
-					}
-
-					Ok(())
-				})?;
-
-				Ok(())
-			}
-
-
-
-
-
-
-
 
 
 

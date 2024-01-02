@@ -68,7 +68,7 @@ pub mod pallet {
             };
             use frame_system::pallet_prelude::*;
             use codec::{Decode, Encode, MaxEncodedLen};
-            use sp_runtime::{RuntimeDebug, traits::{AccountIdConversion, AtLeast32BitUnsigned, CheckedAdd, CheckedSub, One}};
+            use sp_runtime::{RuntimeDebug, traits::{AccountIdConversion, AtLeast32BitUnsigned, CheckedAdd, CheckedSub, CheckedDiv, Saturating, One}};
             use scale_info::prelude::vec::Vec;
             use core::convert::TryInto;
             use frame_support::BoundedVec;
@@ -284,8 +284,10 @@ pub mod pallet {
             InvalidFestival,
 
             NonexistentFestival,
+            NonexistentMovie,
             FestivalNotActive,
             FestivalNotAcceptingNewMovies,
+            CannotVoteInOwnFestival,
 
             VoteAmountTooLow,
 
@@ -601,6 +603,20 @@ pub mod pallet {
 				// 	Error::<T>::WalletStatsRegistryRequired,
 				// );
 
+                for movie_id in internal_movie_ids.clone() {
+                    ensure!(
+                        pallet_movie::Pallet::<T>::do_does_internal_movie_exist(movie_id.clone())?,
+                        Error::<T>::NonexistentMovie,
+                    );
+                }
+
+                for movie_id in external_movie_ids.clone() {
+                    ensure!(
+                        pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_id.clone())?,
+                        Error::<T>::NonexistentMovie,
+                    );
+                }
+
                 Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
                     let fes = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                     ensure!(
@@ -708,18 +724,22 @@ pub mod pallet {
 				
 				let mut reward = BalanceOf::<T>::from(0u32);
 				
-				let claimable_tokens_festival = pallet_stat_tracker::Pallet::<T>::get_wallet_tokens(who.clone()).unwrap().claimable_tokens_festival;
+				let claimable_tokens_festival = 
+                    pallet_stat_tracker::Pallet::<T>::
+                    get_wallet_tokens(who.clone()).unwrap()
+                    .claimable_tokens_festival;
 
-				ensure!(
-					T::Currency::transfer(
-						&Self::account_id(), 
-						&who.clone(),
-						claimable_tokens_festival.clone(), 
-						AllowDeath
-					) == Ok(()),
-					Error::<T>::NotEnoughBalance
-				);
-				pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(who.clone(), BalanceOf::<T>::from(0u32), true)?;
+                <T as pallet_stat_tracker::Config>::Currency::transfer(
+                    &Self::account_id(),  &who.clone(),
+                    claimable_tokens_festival.clone(), AllowDeath, 
+                );
+                    
+                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                    who.clone(), 
+                    pallet_stat_tracker::FeatureType::Festival,
+                    pallet_stat_tracker::TokenType::Claimable,
+                    BalanceOf::<T>::from(0u32), true
+                )?;
 			
 				Self::deposit_event(Event::FestivalTokensClaimed(who, reward));
 				Ok(())
@@ -930,7 +950,7 @@ pub mod pallet {
                                 WalletFestivalData::<T>::try_mutate_exists( fest.owner.clone(), |wal_data| -> DispatchResult{
                                     let wallet_data = wal_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                                     
-                                    //filter the movie from the awaiting activation list
+                                    //filter the festival from the awaiting activation list
                                     wallet_data.awaiting_start_festivals.retain(
                                         |fes_id| 
                                         fes_id != &festival_id.clone()
@@ -1027,18 +1047,25 @@ pub mod pallet {
                 )-> Result<(), DispatchError> {
                     
                     Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
-                        
                         let fest = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;   
-
-                        ensure!(fest.owner != who.clone(), Error::<T>::FestivalNotActive);
+                        
+                        ensure!(
+                            (fest.internal_movies.contains(&movie_id.clone())
+                            || fest.external_movies.contains(&movie_id.clone())),
+                            Error::<T>::MovieNotInFestival
+                        );
+                        ensure!(fest.owner != who.clone(), Error::<T>::CannotVoteInOwnFestival);
                         ensure!(fest.status == FestivalStatus::Active, Error::<T>::FestivalNotActive);
-                        ensure!( <T as pallet_stat_tracker::Config>::Currency::transfer(
-                            who,
-                            &Self::account_id(),
-                            fest.min_entry,
-                            AllowDeath,
-                        ) == Ok(()), Error::<T>::InsufficientBalance);
-                        pallet_stat_tracker::Pallet::<T>::update_locked_tokens_festival(who.clone(), fest.min_entry.clone(), false)?;
+                        <T as pallet_stat_tracker::Config>::Currency::transfer(
+                            who, &Self::account_id(),
+                            fest.min_entry, AllowDeath,
+                        );
+                        pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                            who.clone(), 
+                            pallet_stat_tracker::FeatureType::Festival,
+                            pallet_stat_tracker::TokenType::Locked,
+                            fest.min_entry.clone(), false
+                        )?;
                         
                         let vote = Vote {
                             voter: who.clone(),
@@ -1046,7 +1073,7 @@ pub mod pallet {
                             amount: fest.min_entry,
                         };
 
-                        fest.total_lockup.checked_add(&fest.min_entry).ok_or(Error::<T>::Overflow)?;
+                        fest.total_lockup = fest.total_lockup.checked_add(&fest.min_entry).ok_or(Error::<T>::Overflow)?;
                         fest.vote_list.try_push(vote).unwrap();
 
                         Ok(())
@@ -1062,35 +1089,6 @@ pub mod pallet {
                     <T as Config>::PalletId::get().try_into_account().unwrap()
                 }
 
-                // pub fn do_transfer_funds_to_treasury(
-                //     who: &T::AccountId,
-                //     amount: BalanceOf<T>,
-                // ) -> Result<(), DispatchError> {
-
-                //     let treasury = &Self::account_id();
-                //     T::Currency::transfer(
-                //         who, treasury,
-                //         BalanceOf::<T>::from(amount), KeepAlive,
-                //     )?;
-
-                //     Ok(())
-                // }
-
-
-                // pub fn do_transfer_funds_from_treasury(
-                //     who: &T::AccountId,
-                //     amount: BalanceOf<T>,
-                // ) -> Result<(), DispatchError> {
-
-                //     let treasury = &Self::account_id();
-                //     T::Currency::transfer(
-                //         &treasury, who,
-                //         amount, KeepAlive,
-                //     )?;
-
-                //     Ok(())
-                // }
-
 
             /* Votes */
 
@@ -1104,16 +1102,37 @@ pub mod pallet {
                     = TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
                 
                 let festival = Festivals::<T>::try_get(festival_id).unwrap();
-                let total_lockup = festival.total_lockup;
+                // let total_lockup = festival.total_lockup;
 
+                // let mut reward_exists = true;
+                // if total_lockup == BalanceOf::<T>::from(0u32) {
+                //     reward_exists = false;
+                // }
+                
+                // determine the rewards (if > 0) and the voting winners
                 for vote in festival.vote_list { 
                     if winning_opts.contains(&vote.vote_for.clone()) {
-                        let amount = Self::do_calculate_simple_reward(
-                            total_lockup, vote.amount, winners_lockup
+                        // if reward_exists {
+                        let reward = Self::do_calculate_simple_reward(
+                            festival.total_lockup, vote.amount.clone(), winners_lockup
                         )?;
-                        pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_festival(vote.voter.clone(), amount, false)?;
-                        winner_list.try_push(vote.voter).unwrap();
+                        pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                            vote.voter.clone(), 
+                            pallet_stat_tracker::FeatureType::Festival,
+                            pallet_stat_tracker::TokenType::Claimable,
+                            reward, false,
+                        )?;
+                        // }
+                        winner_list.try_push(vote.voter.clone()).unwrap();
                     }
+
+                    // unlock the tokens from the votes
+                    pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                        vote.voter.clone(), 
+                        pallet_stat_tracker::FeatureType::Festival,
+                        pallet_stat_tracker::TokenType::Locked,
+                        vote.amount, true
+                    )?;
                 }
 
                 //TODO add event
@@ -1154,10 +1173,10 @@ pub mod pallet {
                 // verify if movies still exist, and assign the win to the uploader
                 for movie_id in winners.clone() {
                     //TODO extract these 2 checks into pallet_movie
-                    // let internal_movie_exists = pallet_movie::Pallet::<T>
-                    //     ::do_does_internal_movie_exist(movie_id.clone())?;
-                    // let external_movie_exists = pallet_movie::Pallet::<T>
-                    //     ::do_does_external_movie_exist(movie_id.clone())?;
+                    let internal_movie_exists = pallet_movie::Pallet::<T>
+                        ::do_does_internal_movie_exist(movie_id.clone())?;
+                    let external_movie_exists = pallet_movie::Pallet::<T>
+                        ::do_does_external_movie_exist(movie_id.clone())?;
 
                     let uploader = pallet_movie::Pallet::<T>
                         ::get_movie_uploader(movie_id)?;
@@ -1184,7 +1203,7 @@ pub mod pallet {
 
                     }
                     else {
-                        WalletFestivalData::<T>::try_mutate( uploader.clone(), |festival_data| -> DispatchResult{
+                        WalletFestivalData::<T>::try_mutate_exists( uploader.clone(), |festival_data| -> DispatchResult{
                             let fes_data = festival_data.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
                             fes_data.won_festivals.try_push(festival_id).unwrap();
                             
@@ -1201,30 +1220,45 @@ pub mod pallet {
                 festival_id: T::FestivalId, 
                 winning_movies:Vec<BoundedVec<u8, T::LinkStringLimit>>
             ) -> Result<BalanceOf<T>,DispatchError> {
-                //TODO use balanceof alias
-                let mut winners_lockup : BalanceOf<T> = 0u32.into();
-
+                
                 let fes_votes = Festivals::<T>::try_get(festival_id).unwrap().vote_list;
+                let mut winners_total_lockup = BalanceOf::<T>::from(0u32);
 
                 for vote in fes_votes {
                     if winning_movies.contains(&vote.vote_for.clone()) {
-                        winners_lockup += vote.amount;
+                        winners_total_lockup = 
+                            winners_total_lockup
+                            .checked_add(&vote.amount)
+                            .ok_or(Error::<T>::Overflow)?;
                     }   
                 }
             
-                Ok(winners_lockup)
+                Ok(winners_total_lockup)
             }
+
+
 
             fn do_calculate_simple_reward(
                 total_lockup: BalanceOf<T>,
                 user_lockup: BalanceOf<T>,
                 winner_lockup: BalanceOf<T>,
             ) -> Result<BalanceOf<T>, DispatchError> {
+                let thousand: BalanceOf<T> = 1000u32.into();
+
+                // let user_share = (user_lockup / winner_lockup);
+                // user_lockup.saturating_mul(total_moderators.into());
+
+                let user_share = 
+                    winner_lockup
+                    .checked_div(&user_lockup)
+                    .ok_or(Error::<T>::Overflow)?;
                 
-                Ok(
-                    (user_lockup * 1000u32.into()) /
-                    (winner_lockup) * (total_lockup / 1000u32.into())
-                ) //TODO check bracket after winner_lockup
+                let user_reward = 
+                    total_lockup
+                    .checked_div(&user_share)
+                    .ok_or(Error::<T>::Overflow)?;
+
+                Ok(user_reward) //TODO check bracket after winner_lockup
             }
 
 

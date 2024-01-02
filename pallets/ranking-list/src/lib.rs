@@ -578,17 +578,18 @@ pub mod pallet {
 					ensure!(list.movies_in_list.contains(&movie_id), Error::<T>::MovieNotInRankingList);
 
 					// transfer amount to this pallet's vault
-					ensure!(
-						T::Currency::transfer(
-							&who.clone(),
-							&Self::account_id(), 
-							amount.clone(), 
-							AllowDeath
-						) == Ok(()),
-						Error::<T>::NotEnoughBalance
+					T::Currency::transfer(
+						&who.clone(),
+						&Self::account_id(), 
+						amount.clone(), 
+						AllowDeath
 					);
-					pallet_stat_tracker::Pallet::<T>::update_locked_tokens_ranking(who.clone(), amount.clone(), false)?;
-
+					pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+						who.clone(), 
+						pallet_stat_tracker::FeatureType::RankingList,
+						pallet_stat_tracker::TokenType::Locked,
+						amount.clone(), false
+					)?;
 
 					// create the Vote
 					let vote = RankingVote {
@@ -633,16 +634,17 @@ pub mod pallet {
 				
 				let claimable_tokens_ranking = pallet_stat_tracker::Pallet::<T>::get_wallet_tokens(who.clone()).unwrap().claimable_tokens_ranking;
 
-				ensure!(
-					T::Currency::transfer(
-						&Self::account_id(), 
-						&who.clone(),
-						claimable_tokens_ranking.clone(), 
-						AllowDeath
-					) == Ok(()),
-					Error::<T>::NotEnoughBalance
+				T::Currency::deposit_into_existing(
+					&who.clone(),
+					claimable_tokens_ranking.clone(), 
 				);
-				pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_ranking(who.clone(), BalanceOf::<T>::from(0u32), true)?;
+				
+				pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+					who.clone(), 
+					pallet_stat_tracker::FeatureType::RankingList,
+					pallet_stat_tracker::TokenType::Claimable,
+					claimable_tokens_ranking.clone(), true
+				)?;
 			
 				Self::deposit_event(Event::RankingTokensClaimed(who, reward));
 				Ok(())
@@ -781,7 +783,12 @@ pub mod pallet {
 							.checked_div(&BalanceOf::<T>::from(blocks_in_year))
 							.ok_or(Error::<T>::Overflow)?;
 					
-						pallet_stat_tracker::Pallet::<T>::update_claimable_tokens_ranking(account_id.clone(), tokens_return, false)?;
+						pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+							account_id.clone(), 
+							pallet_stat_tracker::FeatureType::RankingList,
+							pallet_stat_tracker::TokenType::Claimable,
+							tokens_return, false
+						)?;
 					}
 
 					// swap the id for the weight so the elements can be conveniently sorted

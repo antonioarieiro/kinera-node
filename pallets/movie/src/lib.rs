@@ -223,6 +223,12 @@ pub mod pallet {
                     &who, 
                     BalanceOf::<T>::from(T::MovieCollateral::get())
                 );
+                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                    who.clone(), 
+                    pallet_stat_tracker::FeatureType::Movie,
+                    pallet_stat_tracker::TokenType::Locked,
+                    BalanceOf::<T>::from(T::MovieCollateral::get()), false
+                )?;
                 
                 Self::do_create_internal_movie(
                     &who, name,synopsis, movie_description,
@@ -252,6 +258,12 @@ pub mod pallet {
                     &who, 
                     BalanceOf::<T>::from(T::MovieCollateral::get())
                 );
+                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                    who.clone(), 
+                    pallet_stat_tracker::FeatureType::Movie,
+                    pallet_stat_tracker::TokenType::Locked,
+                    BalanceOf::<T>::from(T::MovieCollateral::get()), false
+                )?;
 
                 Self::do_create_external_movie(&who, source, link, category_tag_list)?;
 
@@ -463,7 +475,7 @@ pub mod pallet {
                 
                 let mut uploader;
                 if InternalMovies::<T>::contains_key(movie_id.clone()) {
-                    uploader = InternalMovies::<T>::try_get(movie_id).unwrap().uploader;
+                    uploader = InternalMovies::<T>::get(movie_id).unwrap().uploader;
                 }
                 else {
                     uploader = ExternalMovies::<T>::try_get(movie_id).unwrap().uploader;
