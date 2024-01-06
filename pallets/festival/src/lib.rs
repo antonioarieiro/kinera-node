@@ -603,19 +603,20 @@ pub mod pallet {
 				// 	Error::<T>::WalletStatsRegistryRequired,
 				// );
 
-                for movie_id in internal_movie_ids.clone() {
-                    ensure!(
-                        pallet_movie::Pallet::<T>::do_does_internal_movie_exist(movie_id.clone())?,
-                        Error::<T>::NonexistentMovie,
-                    );
-                }
+                //TODO check not working
+                // for movie_id in internal_movie_ids.clone() {
+                //     ensure!(
+                //         pallet_movie::Pallet::<T>::do_does_internal_movie_exist(movie_id.clone())?,
+                //         Error::<T>::NonexistentMovie,
+                //     );
+                // }
 
-                for movie_id in external_movie_ids.clone() {
-                    ensure!(
-                        pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_id.clone())?,
-                        Error::<T>::NonexistentMovie,
-                    );
-                }
+                // for movie_id in external_movie_ids.clone() {
+                //     ensure!(
+                //         pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_id.clone())?,
+                //         Error::<T>::NonexistentMovie,
+                //     );
+                // }
 
                 Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
                     let fes = festival.as_mut().ok_or(Error::<T>::NonexistentFestival)?;
@@ -734,7 +735,7 @@ pub mod pallet {
                     claimable_tokens_festival.clone(), AllowDeath, 
                 );
                     
-                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                     who.clone(), 
                     pallet_stat_tracker::FeatureType::Festival,
                     pallet_stat_tracker::TokenType::Claimable,
@@ -1060,7 +1061,7 @@ pub mod pallet {
                             who, &Self::account_id(),
                             fest.min_entry, AllowDeath,
                         );
-                        pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                        pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                             who.clone(), 
                             pallet_stat_tracker::FeatureType::Festival,
                             pallet_stat_tracker::TokenType::Locked,
@@ -1116,7 +1117,7 @@ pub mod pallet {
                         let reward = Self::do_calculate_simple_reward(
                             festival.total_lockup, vote.amount.clone(), winners_lockup
                         )?;
-                        pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                        pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                             vote.voter.clone(), 
                             pallet_stat_tracker::FeatureType::Festival,
                             pallet_stat_tracker::TokenType::Claimable,
@@ -1127,7 +1128,7 @@ pub mod pallet {
                     }
 
                     // unlock the tokens from the votes
-                    pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                    pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                         vote.voter.clone(), 
                         pallet_stat_tracker::FeatureType::Festival,
                         pallet_stat_tracker::TokenType::Locked,

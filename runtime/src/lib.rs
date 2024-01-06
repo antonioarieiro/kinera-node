@@ -998,7 +998,7 @@ parameter_types! {
 	pub const WalletNameStringLimit: u32 = 50;
 	pub const DescStringLimit: u32 = 1000;
 	pub const MaxMoviesInFest: u32 = 1000;
-	pub const MaxOwnedFestivals: u32 = 10;
+	pub const MaxOwnedFestivals: u32 = 50000;
 	pub const MinFesBlockDuration: u32 = 1; // prev 3600
 	pub const FestBlockSafetyMargin: u32 = 2; // prev 10
 	pub const MaxFestivalsPerBlock: u32 = 500;
@@ -1056,7 +1056,7 @@ impl pallet_moderation::Config for Runtime{
 parameter_types! {
 	pub const MovieStringLimit: u32 = 50;
 	pub const LinkStringLimit: u32 = 10000;
-	pub const MovieCollateral: u32 = 30;
+	pub const MovieCollateral: u32 = 3000;
 }
 
 impl pallet_movie::Config for Runtime{

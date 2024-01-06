@@ -308,8 +308,8 @@ fn testnet_genesis(
 			), MaxTags>,
 		) = (
 			"All Times, Best Films".as_bytes().to_vec().try_into().unwrap(),
-			"The best films in the platform.".as_bytes().to_vec().try_into().unwrap(),
-			BlockNumber::from(4800u32),
+			"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
+			BlockNumber::from(25u32),
 			TryInto::try_into(vec![(
 				"Just FUN".as_bytes().to_vec().try_into().unwrap(),
 				"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
@@ -362,7 +362,7 @@ fn testnet_genesis(
 			), MaxTags>,
 		) = (
 			"Best Crypto Youtuber/TikTok Channels, Online".as_bytes().to_vec().try_into().unwrap(),
-			"The best content regarding Web3 and crypto.".as_bytes().to_vec().try_into().unwrap(),
+			"The best content regarding Web3 and Crypto.".as_bytes().to_vec().try_into().unwrap(),
 			BlockNumber::from(4800u32),
 			TryInto::try_into(vec![(
 				"Just FUN".as_bytes().to_vec().try_into().unwrap(),
@@ -380,7 +380,7 @@ fn testnet_genesis(
 			), MaxTags>,
 		) = (
 			"Documentaries and Fiction, Online".as_bytes().to_vec().try_into().unwrap(),
-			"The best films in the platform.".as_bytes().to_vec().try_into().unwrap(),
+			"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
 			BlockNumber::from(4800u32),
 			TryInto::try_into(vec![(
 				"Just FUN".as_bytes().to_vec().try_into().unwrap(),

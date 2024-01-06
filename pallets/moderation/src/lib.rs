@@ -6,6 +6,7 @@
 	//TODO abstract treasury features to single pallet
 	//TODO fix account_id as a storage key being a reference (&)
 	//TODO remove the claimable amount from this pallet (already in stat_tracker)
+	//TODO check T::Currency::unreserve(&reportee, collateral);
 	
 	
 	#![cfg_attr(not(feature = "std"), no_std)]
@@ -180,8 +181,7 @@ pub mod pallet {
 			}
 
 			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-			pub struct Moderator<ReportList, BalanceOf, ModeratorRank> {
-				pub collateral_tokens: BalanceOf,
+			pub struct Moderator<ReportList, ModeratorRank> {
 				pub assigned_reports: ReportList,
 				pub rank: ModeratorRank,
 				pub total_points: u32,
@@ -229,15 +229,17 @@ pub mod pallet {
 		
 		//* Moderators *//
 
-			// match a moderator's id to its moderator information
+			// Match a moderator's id to its moderator information.
+			// Also keeps track of the total number of moderators,
+			// to ensure there are enough moderators.
+			//TODO make a new storage for unallocated_moderators
 			#[pallet::storage]
 			pub type Moderators<T: Config> =
-				StorageMap<
+				CountedStorageMap<
 					_, 
 					Blake2_128Concat, T::AccountId, 
 					Moderator<
 						BoundedVec<T::ContentId, T::MaxReportsByModerator>, 
-						BalanceOf<T>,
 						ModeratorRank,
 					>,
 					OptionQuery,
@@ -252,7 +254,7 @@ pub mod pallet {
 		pub enum Event<T: Config> {
 			ModeratorRegistered(T::AccountId),
 			ModerationActivitySuspended(T::AccountId),
-			ModerationRewardsClaimed(T::AccountId, BalanceOf<T>),
+			ModerationRewardsClaimed(T::AccountId),
 
 			VoteSubmitted(),
 			
@@ -341,7 +343,7 @@ pub mod pallet {
 				// TODO call tracker and check if enough reputation
 				
 				Self::do_transfer_funds_to_treasury(who.clone(), T::MinimumTokensForModeration::get())?;
-				pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 					who.clone(), 
 					pallet_stat_tracker::FeatureType::Moderation,
 					pallet_stat_tracker::TokenType::Locked,
@@ -374,9 +376,9 @@ pub mod pallet {
 			) -> DispatchResult {
 				
 				let who = ensure_signed(origin)?;
-				let reward = Self::do_claim_moderation_reward(who.clone())?;
+				Self::do_claim_moderation_reward(who.clone())?;
 
-				Self::deposit_event(Event::ModerationRewardsClaimed(who, reward));
+				Self::deposit_event(Event::ModerationRewardsClaimed(who));
 				Ok(())
 			}	
 
@@ -403,11 +405,17 @@ pub mod pallet {
 
 				Self::do_validate_report_data (
 					content_id, content_type, justification.clone(), 
-					category_type.clone(),
+					category_type.clone(), category_tag_list.clone()
 				)?; //TODO check if report is ongoing
 
 				let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
 				Self::do_transfer_funds_to_treasury(who.clone(), reward_pool.0)?;
+				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+					who.clone(), 
+					pallet_stat_tracker::FeatureType::Moderation,
+					pallet_stat_tracker::TokenType::Locked,
+					reward_pool.0, false,
+				)?;
 
 				let moderator_btree = Self::do_get_moderator_btree()?;
 				let drafted_moderators = Self::do_draft_moderators_from_btree(moderator_btree, T::TotalTierOneModerators::get())?;
@@ -476,7 +484,13 @@ pub mod pallet {
 					ensure!(tier_data.2 == true, Error::<T>::ReportAppealLimitReached); // tier_data.2 == is_appealable
 					
 					let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
-					Self::do_transfer_funds_to_treasury(who, reward_pool.0)?;
+					Self::do_transfer_funds_to_treasury(who.clone(), reward_pool.0)?;
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						who, 
+						pallet_stat_tracker::FeatureType::Moderation,
+						pallet_stat_tracker::TokenType::Locked,
+						reward_pool.0, false,
+					)?;
 					report_status = Self::do_get_report_status_on_appeal(is_reporter)?;
 					Self::deposit_event(Event::ReportAppealed(content_id));
 				}
@@ -503,11 +517,22 @@ pub mod pallet {
 						
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
-							Self::do_transfer_funds_from_treasury(reportee_id.clone(), reportee_reward)?;
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+								reportee_id.clone(), 
+								pallet_stat_tracker::FeatureType::Moderation,
+								pallet_stat_tracker::TokenType::Claimable,
+								reportee_reward, false,
+							)?;
+							
 						}
 						else {
 							let reporter_reward = Self::do_calculate_reporter_reward(reward_pool)?;
-							Self::do_transfer_funds_from_treasury(reporter_id.clone(), reporter_reward)?;
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+								reporter_id.clone(), 
+								pallet_stat_tracker::FeatureType::Moderation,
+								pallet_stat_tracker::TokenType::Claimable,
+								reporter_reward, false,
+							)?;
 							// TODO suspend content
 						}
 					} 
@@ -552,22 +577,42 @@ pub mod pallet {
 						
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
-							Self::do_transfer_funds_from_treasury(reportee_id.clone(), reportee_reward)?;
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+								reportee_id.clone(), 
+								pallet_stat_tracker::FeatureType::Moderation,
+								pallet_stat_tracker::TokenType::Claimable,
+								reportee_reward, false,
+							)?;
 							Self::do_update_report_status(content_id, content_type, ReportStatus::Refused)?;
 						}
 						else {
 							let reporter_reward = Self::do_calculate_reporter_reward(reward_pool)?;
-							Self::do_transfer_funds_from_treasury(reporter_id.clone(), reporter_reward)?;
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+								reporter_id.clone(), 
+								pallet_stat_tracker::FeatureType::Moderation,
+								pallet_stat_tracker::TokenType::Claimable,
+								reporter_reward, false,
+							)?;
 							Self::do_update_report_status(content_id, content_type, ReportStatus::Accepted)?;
 						}
 					}
 					
 					let appeal_fee = BalanceOf::<T>::from(Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?.0);
 					if is_reporter {
-						Self::do_transfer_funds_from_treasury(reportee_id, appeal_fee)?;
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							reportee_id, 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Claimable,
+							appeal_fee, false,
+						)?;
 					}
 					else {
-						Self::do_transfer_funds_from_treasury(reporter_id, appeal_fee)?;
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							reporter_id, 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Claimable,
+							appeal_fee, false,
+						)?;
 					}
 					Self::deposit_event(Event::ReportAppealRefused(content_id));
 
@@ -577,11 +622,23 @@ pub mod pallet {
 					let appeal_fee = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?.0;
 					if is_reporter {
 						let reporter_id = Self::do_get_reporter(content_id, content_type)?;
-						Self::do_transfer_funds_to_treasury(reporter_id, appeal_fee)?;
+						Self::do_transfer_funds_to_treasury(reporter_id.clone(), appeal_fee)?;
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							reporter_id, 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Locked,
+							appeal_fee, false,
+						)?;
 					}
 					else {
 						let reportee_id = Self::do_get_reportee(content_id, content_type)?;
-						Self::do_transfer_funds_to_treasury(reportee_id, appeal_fee)?;
+						Self::do_transfer_funds_to_treasury(reportee_id.clone(), appeal_fee)?;
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							reportee_id, 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Locked,
+							appeal_fee, false,
+						)?;
 					}
 
 					let moderator_btree = Self::do_get_moderator_btree()?;
@@ -625,8 +682,8 @@ pub mod pallet {
 					
 					let empty_bounded_reports: BoundedVec<T::ContentId, T::MaxReportsByModerator>
 						= TryInto::try_into(Vec::new()).map_err(|_|Error::<T>::BadMetadata)?;
+					
 					let moderator = Moderator {	
-						collateral_tokens: T::MinimumTokensForModeration::get(),
 						assigned_reports: empty_bounded_reports,
 						rank: ModeratorRank::Junior,
 						total_points: 0u32,
@@ -710,13 +767,32 @@ pub mod pallet {
 				) -> Result<(), DispatchError> {
 					
 					let moderator = Moderators::<T>::try_get(who.clone()).unwrap();
-					Self::do_transfer_funds_from_treasury(who.clone(), moderator.collateral_tokens)?;
-					pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+					
+					let tokens_moderation = 
+						pallet_stat_tracker::Pallet::<T>::
+						get_wallet_tokens(who.clone()).unwrap();
+					
+					Self::do_transfer_funds_from_treasury(who.clone(), tokens_moderation.locked_tokens_moderation)?;
+					
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 						who.clone(), 
 						pallet_stat_tracker::FeatureType::Moderation,
 						pallet_stat_tracker::TokenType::Locked,
-						BalanceOf::<T>::from(0u32), true,
+						tokens_moderation.locked_tokens_moderation, true,
 					)?;
+
+
+					Self::do_transfer_funds_from_treasury(who.clone(), tokens_moderation.claimable_tokens_moderation)?;
+					
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						who.clone(), 
+						pallet_stat_tracker::FeatureType::Moderation,
+						pallet_stat_tracker::TokenType::Claimable,
+						tokens_moderation.claimable_tokens_moderation, true,
+					)?;
+					
+					
+					
 					Moderators::<T>::remove(who);
 					Ok(())
 				} 
@@ -742,13 +818,14 @@ pub mod pallet {
 					content_type: ContentType,
 					_justification: BoundedVec<u8, T::JustificationLimit>,
 					category_type: pallet_tags::CategoryType<T>,
+					category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 				) -> Result<(), DispatchError> {
 					
 					//TODO match type to corresponding pallet and check if exists
-                    // pallet_tags::Pallet::<T>::validate_tag_data(
-                    //     category_type, 
-                    //     category_tag_list.clone()
-                    // )?;
+                    pallet_tags::Pallet::<T>::validate_tag_data(
+                        category_type, 
+                        category_tag_list.clone()
+                    )?;
 
 					ensure!(!Reports::<T>::contains_key((content_id, content_type)), Error::<T>::ReportAlreadyOngoing);
 					//TODO check if the justification is not empty
@@ -994,7 +1071,9 @@ pub mod pallet {
 						let outcome = report_outcome.as_mut().ok_or(Error::<T>::NonexistentReport)?;
 						outcome.votes.try_push(vote).unwrap();
 						if is_for == VoteChoice::For { 
-							outcome.votes_for = outcome.votes_for.checked_add(One::one()).ok_or(Error::<T>::Overflow)?;
+							outcome.votes_for = 
+								outcome.votes_for
+								.checked_add(One::one()).ok_or(Error::<T>::Overflow)?;
 						};
 						Ok(())
 					}) //TODO add ok_or
@@ -1066,12 +1145,12 @@ pub mod pallet {
 					amount: BalanceOf<T>,
 				) -> Result<(), DispatchError> {
 
-					Ok(
-						T::Currency::transfer(
-							&who, &Self::account_id(), 
-							amount, AllowDeath
-						)?
-					) //TODO check if this works
+					<T as pallet_stat_tracker::Config>::Currency::transfer(
+						&who, &Self::account_id(),
+						amount, AllowDeath, 
+					);
+
+					Ok(()) 
 				}
 
 
@@ -1079,12 +1158,13 @@ pub mod pallet {
 					who: T::AccountId,
 					amount: BalanceOf<T>,
 				) -> Result<(), DispatchError> {
-					Ok(
-						T::Currency::transfer(
-							&Self::account_id(), &who,
-							amount, AllowDeath,
-						)?
-					) //TODO check if this works
+
+					<T as pallet_stat_tracker::Config>::Currency::transfer(
+						&Self::account_id(),  &who,
+						amount, AllowDeath, 
+					);
+
+					Ok(()) 
 				}
 			
 
@@ -1097,44 +1177,41 @@ pub mod pallet {
 					let report = Reports::<T>::get((content_id.clone(), content_type)).ok_or(Error::<T>::NonexistentReport)?;
 					let reportee = report.reportee_id;
 
-					T::Currency::unreserve(&reportee, collateral); //TODO handle insufficient balance
 					let treasury = &Self::account_id();
-					
-					Ok(
-						T::Currency::transfer(
-							&reportee, treasury,
-							collateral, AllowDeath,
-						)?
-					)
+					<T as pallet_stat_tracker::Config>::Currency::transfer(
+						&reportee.clone(), treasury,
+						collateral.clone(), AllowDeath,
+					);
+
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						reportee, 
+						pallet_stat_tracker::FeatureType::Moderation,
+						pallet_stat_tracker::TokenType::Locked,
+						collateral, true,
+					)?;
+
+					Ok(())
 				}
 			
 
 				pub fn do_claim_moderation_reward(
 					moderator_id: T::AccountId,
-				) -> Result<BalanceOf<T>, DispatchError> {
+				) -> DispatchResult {
 
-					let mut reward = BalanceOf::<T>::from(0u32);
-					let min_collateral =  T::MinimumTokensForModeration::get();
-
-					Moderators::<T>::try_mutate_exists(moderator_id.clone(), |moderator_data| -> DispatchResult {
-						let moderator = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-						let mod_collateral = moderator.collateral_tokens;
+					let claimable_tokens = 
+							pallet_stat_tracker::Pallet::<T>
+							::get_wallet_tokens(moderator_id.clone()).unwrap().claimable_tokens_moderation;
 						
-						if mod_collateral > min_collateral {
-							reward = mod_collateral.checked_sub(&min_collateral).ok_or(Error::<T>::Overflow)?;
-							moderator.collateral_tokens = mod_collateral.checked_sub(&reward).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
-								moderator_id.clone(), 
-								pallet_stat_tracker::FeatureType::Moderation,
-								pallet_stat_tracker::TokenType::Claimable,
-								BalanceOf::<T>::from(0u32), true,
-							)?;
-						}
+						Self::do_transfer_funds_from_treasury(moderator_id.clone(), claimable_tokens)?;
 
-						Ok(())
-					})?;
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							moderator_id, 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Claimable,
+							BalanceOf::<T>::from(0u32), true,
+						)?;
 
-					Ok(reward)
+					Ok(())
 				}
 
 
@@ -1159,18 +1236,19 @@ pub mod pallet {
 					
 					for moderator_id in majority_voters.iter() {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
-							let moderator = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-							moderator.collateral_tokens = moderator.collateral_tokens.checked_add(&reward).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 								moderator_id.clone(), 
 								pallet_stat_tracker::FeatureType::Moderation,
 								pallet_stat_tracker::TokenType::Claimable,
 								reward, false,
 							)?;
+							
+							let moderator = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 							moderator.total_points = moderator.total_points.checked_add(1u32).ok_or(Error::<T>::Overflow)?;
 							if moderator.total_points > 9 {
 								moderator.rank = ModeratorRank::Senior;
 							}
+
 							Ok(())
 						})?;
 					}
@@ -1186,8 +1264,7 @@ pub mod pallet {
 					for moderator_id in minority_voters.iter() {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
 							let moderator  = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-							moderator.collateral_tokens = moderator.collateral_tokens.checked_sub(&moderator_fee).ok_or(Error::<T>::Overflow)?;
-							pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 								moderator_id.clone(), 
 								pallet_stat_tracker::FeatureType::Moderation,
 								pallet_stat_tracker::TokenType::Locked,

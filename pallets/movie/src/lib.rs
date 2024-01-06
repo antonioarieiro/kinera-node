@@ -223,7 +223,7 @@ pub mod pallet {
                     &who, 
                     BalanceOf::<T>::from(T::MovieCollateral::get())
                 );
-                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                     who.clone(), 
                     pallet_stat_tracker::FeatureType::Movie,
                     pallet_stat_tracker::TokenType::Locked,
@@ -258,7 +258,7 @@ pub mod pallet {
                     &who, 
                     BalanceOf::<T>::from(T::MovieCollateral::get())
                 );
-                pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+                pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                     who.clone(), 
                     pallet_stat_tracker::FeatureType::Movie,
                     pallet_stat_tracker::TokenType::Locked,

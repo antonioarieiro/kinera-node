@@ -302,21 +302,6 @@ pub mod pallet {
 			>
 		>;
 
-		// Matches IDs of (RankingListId, MovieId) to the voting data of that movie
-		// in that ranking list. 
-		// #[pallet::storage]
-		// #[pallet::getter(fn list_votes)]
-		// pub type ListVotes<T:Config>= StorageMap<
-		// 	_,
-		// 	Blake2_128Concat, (RankingListId, T::MovieId),
-		// 	VotesForMovie<
-		// 		BoundedVec< 
-		// 			RankingVote<T::MovieId, BalanceOf<T>>,
-		// 			T::MaxVotersPerList
-		// 		>
-		// 	>, 
-		// >;
-
 
 		// Matches a block number to all ranking list's that need to be refreshed.
 		// After the set block, the entries are wiped to conserve
@@ -326,19 +311,6 @@ pub mod pallet {
 			_, 
 			Blake2_128Concat, T::BlockNumber, 
 			Deadlines<BoundedVec<RankingListId, T::MaxListsPerBlock>>,
-		>;
-
-
-
-		// Keeps track of where each user is currently voting.
-		// It exists to ease the iteration of checking how many
-		// tokens are in stake and where. 
-		#[pallet::storage]
-		#[pallet::getter(fn get_user_votes)]
-		pub type UserVotes<T:Config> = StorageMap<
-			_, 
-			Blake2_128Concat, T::AccountId, 
-			UserVoteList<BoundedVec<RankingListId, T::MaxMoviesInList>>,
 		>;
 
 
@@ -584,7 +556,7 @@ pub mod pallet {
 						amount.clone(), 
 						AllowDeath
 					);
-					pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 						who.clone(), 
 						pallet_stat_tracker::FeatureType::RankingList,
 						pallet_stat_tracker::TokenType::Locked,
@@ -637,9 +609,9 @@ pub mod pallet {
 				T::Currency::deposit_into_existing(
 					&who.clone(),
 					claimable_tokens_ranking.clone(), 
-				);
+				); //TODO .ok() check if it works
 				
-				pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 					who.clone(), 
 					pallet_stat_tracker::FeatureType::RankingList,
 					pallet_stat_tracker::TokenType::Claimable,
@@ -769,26 +741,33 @@ pub mod pallet {
 							let voting_power = Self::do_calculate_voting_power(vote.locked_amount, vote.conviction)?; //TODO add conviction
 							movies_by_power.get_mut(&vote.movie_id).unwrap().checked_add(&voting_power).ok_or(Error::<T>::Overflow)?;
 							// tally the tokens
-							total_return.checked_add(&vote.locked_amount).ok_or(Error::<T>::Overflow)?;
+							total_return = total_return.checked_add(&vote.locked_amount).ok_or(Error::<T>::Overflow)?;
 						}
 
-						// return the 10% APY
-						let tokens_per_year = 
+						// (total_stake / Blocks_Per_Year) * (APY / 100) = (total_stake * APY) / (Blocks_Per_Year * 100)
+						// //TODO trasnfer the 10 balance into a config variable -> it's the apy value
+						let new_earning = 
 							total_return
-							.checked_div(&BalanceOf::<T>::from(10u32))
-							.ok_or(Error::<T>::Overflow)?;
-						let tokens_aux = tokens_per_year.saturating_mul(T::MinimumListDuration::get().into());
-						let tokens_return = 
-							tokens_aux
-							.checked_div(&BalanceOf::<T>::from(blocks_in_year))
-							.ok_or(Error::<T>::Overflow)?;
-					
-						pallet_stat_tracker::Pallet::<T>::update_wallet_tokens_by_feature_type(
+							.saturating_mul(10u32.into());
+							
+						let total_earning_needed =
+							blocks_in_year
+							.saturating_mul(100u32.into());
+
+						// return the 10% APY
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_imbalance(
 							account_id.clone(), 
 							pallet_stat_tracker::FeatureType::RankingList,
-							pallet_stat_tracker::TokenType::Claimable,
-							tokens_return, false
+							new_earning, BalanceOf::<T>::from(total_earning_needed),
+							false,
 						)?;
+
+						// pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						// 	account_id.clone(), 
+						// 	pallet_stat_tracker::FeatureType::RankingList,
+						// 	pallet_stat_tracker::TokenType::Claimable,
+						// 	BalanceOf::<T>::from(total_earning_needed), false
+						// )?;
 					}
 
 					// swap the id for the weight so the elements can be conveniently sorted
@@ -833,6 +812,37 @@ pub mod pallet {
 						Conviction::Locked6x => return Ok(vote.saturating_mul(6u32.into())),
 					};
 				}
+
+
+
+				
+				// // Lets now calculate how this is split to the nominators.
+				// // Reward only the clipped exposures. Note this is not necessarily sorted.
+				// for nominator in exposure.others.iter() {
+				// 	let nominator_exposure_part = Perbill::from_rational(nominator.value, exposure.total);
+
+				// 	let nominator_reward: BalanceOf<T> =
+				// 		nominator_exposure_part * validator_leftover_payout;
+				// 	// We can now make nominator payout:
+				// 	if let Some(imbalance) = Self::make_payout(&nominator.who, nominator_reward) {
+				// 		// Note: this logic does not count payouts for `RewardDestination::None`.
+				// 		nominator_payout_count += 1;
+				// 		let e =
+				// 			Event::<T>::Rewarded { stash: nominator.who.clone(), amount: imbalance.peek() };
+				// 		Self::deposit_event(e);
+				// 		total_imbalance.subsume(imbalance);
+				// 	}
+				// }
+
+
+
+
+
+
+
+
+
+
 
 		}
 

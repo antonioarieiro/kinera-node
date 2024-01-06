@@ -30,9 +30,13 @@ pub mod pallet {
 					Currency,
 					ReservableCurrency,
 				},
-				sp_runtime::traits::{
-					CheckedAdd,
-					CheckedSub,
+				sp_runtime::{
+					traits::{
+						CheckedAdd,
+						CheckedSub,
+						CheckedDiv,
+						Saturating,
+					},
 				}
 			};
 			use frame_system::pallet_prelude::*;
@@ -106,7 +110,7 @@ pub mod pallet {
 			// The "total_..." and "claimable_..." balance parameters are each updated by the corresponding app feature.
 			// To get the current locked balance, you must do "total_..." - "claimable_..." = "locked_...". 
 			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo,)] //TODO add type info
-			pub struct Tokens<Balance> {
+			pub struct Tokens<Balance, TokenImbalance> {
 				pub reputation: u32,
 				pub locked_tokens_moderation: Balance,
 				pub claimable_tokens_moderation: Balance,
@@ -114,6 +118,7 @@ pub mod pallet {
 				pub claimable_tokens_festival: Balance,
 				pub locked_tokens_ranking: Balance,
 				pub claimable_tokens_ranking: Balance,
+				pub imbalance_tokens_ranking: TokenImbalance,
 				pub locked_tokens_movie: Balance,
 				pub claimable_tokens_movie: Balance,
 			}
@@ -151,6 +156,7 @@ pub mod pallet {
 				Blake2_128Concat, T::AccountId,
 				Tokens<
 					BalanceOf<T>,
+					(BalanceOf<T>, BalanceOf<T>),
 				>,
 			>; //TODO check why bounded vec has T::AccountId as the key
 
@@ -237,6 +243,7 @@ pub mod pallet {
 						claimable_tokens_festival: zero_balance.clone(),
 						locked_tokens_ranking: zero_balance.clone(),
 						claimable_tokens_ranking: zero_balance.clone(),
+						imbalance_tokens_ranking: (zero_balance.clone(), zero_balance.clone()),
 						locked_tokens_movie: zero_balance.clone(),
 						claimable_tokens_movie: zero_balance,
 					};
@@ -404,6 +411,7 @@ pub mod pallet {
 			}
 				
 			// apply either positive or negative value changes
+			//TODO refactor into the token function
 			pub fn apply_reputation_value_change(
 				who: T::AccountId,
 				reputation_value: u32,
@@ -437,7 +445,7 @@ pub mod pallet {
 			// Used to abstract the "update_token" functions.
 			// This allows a single function to manage all 
 			// the different types of tokens.
-			pub fn update_wallet_tokens_by_feature_type(
+			pub fn do_update_wallet_tokens(
 				who: T::AccountId,
 				feature_type: FeatureType,
 				token_type: TokenType,
@@ -445,130 +453,157 @@ pub mod pallet {
 				is_slash: bool,
 			) -> DispatchResult {
 				
-
 				// this is the first instance where the wallet's tokens are updated
 				if !WalletTokens::<T>::contains_key(who.clone()) {
-
-					let zero_balance = BalanceOf::<T>::from(0u32);
-					let mut wallet_tokens = Tokens {
-						reputation: T::DefaultReputation::get(),
-						locked_tokens_moderation: zero_balance.clone(),
-						claimable_tokens_moderation: zero_balance.clone(),
-						locked_tokens_festival: zero_balance.clone(),
-						claimable_tokens_festival: zero_balance.clone(),
-						locked_tokens_ranking: zero_balance.clone(),
-						claimable_tokens_ranking: zero_balance.clone(),
-						locked_tokens_movie: zero_balance.clone(),
-						claimable_tokens_movie: zero_balance,
-					};
-
-					match (feature_type, token_type) {
-						(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = token_change.clone(),
-						(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = token_change.clone(),
-	
-						(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = token_change.clone(),
-						(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = token_change.clone(),
-						
-						(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = token_change.clone(),
-						(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = token_change.clone(),
-						
-						(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = token_change.clone(),
-						(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = token_change.clone(),
-					};
-
-					//TODO add negative integer use case 
-					// (FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
-					// zero_balance.clone()
-					// .checked_sub(&total_tokens.clone())
-					// .ok_or(Error::<T>::Underflow)?,
-
-					WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
+					Self::do_update_wallet_tokens_doesnt_exist(
+						who, 
+						feature_type, token_type, 
+						token_change,
+					)?;
 				}
 
 				// the wallet already contains an entry, retrieve & update
 				else {
-					WalletTokens::<T>::try_mutate(who, |wal_tokens| -> DispatchResult {
-						let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
-						
-						// dynamically select which token variable to update
-						match (feature_type, token_type) {
-							(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
-								Self::update_token_value(
-									wallet_tokens.locked_tokens_festival.clone(),
-									token_change,
-									is_slash,
-								)?,
-							(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = 
-								Self::update_token_value(
-									wallet_tokens.claimable_tokens_festival.clone(),
-									token_change,
-									is_slash,
-								)?,
-		
-							(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = 
-								Self::update_token_value(
-									wallet_tokens.locked_tokens_ranking.clone(),
-									token_change,
-									is_slash,
-								)?, 
-							(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = 
-								Self::update_token_value(
-									wallet_tokens.claimable_tokens_ranking.clone(),
-									token_change,
-									is_slash,
-								)?,
-							
-							(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = 
-								Self::update_token_value(
-									wallet_tokens.locked_tokens_moderation.clone(),
-									token_change,
-									is_slash,
-								)?,
-							(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = 
-								Self::update_token_value(
-									wallet_tokens.claimable_tokens_moderation.clone(),
-									token_change,
-									is_slash,
-								)?,
-
-							(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = 
-								Self::update_token_value(
-									wallet_tokens.locked_tokens_movie.clone(),
-									token_change,
-									is_slash,
-								)?,
-							(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = 
-								Self::update_token_value(
-									wallet_tokens.claimable_tokens_movie.clone(),
-									token_change,
-									is_slash,
-								)?,
-						};
-	
-						
-	
-						Ok(())
-					})?;
+					Self::do_update_wallet_tokens_exists(
+						who, 
+						feature_type, token_type, 
+						token_change, is_slash,
+					)?;
 				}
-
 
 				Ok(())
 			}
 
-			
 
-			pub fn update_token_value(
+			//
+			pub fn do_update_wallet_tokens_doesnt_exist(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				token_type: TokenType,
+				token_change: BalanceOf<T>,
+			) -> DispatchResult  {
+
+				let zero_balance = BalanceOf::<T>::from(0u32);
+				let mut wallet_tokens = Tokens {
+					reputation: T::DefaultReputation::get(),
+					locked_tokens_moderation: zero_balance.clone(),
+					claimable_tokens_moderation: zero_balance.clone(),
+					
+					locked_tokens_festival: zero_balance.clone(),
+					claimable_tokens_festival: zero_balance.clone(),
+					
+					locked_tokens_ranking: zero_balance.clone(),
+					claimable_tokens_ranking: zero_balance.clone(),
+					imbalance_tokens_ranking: (zero_balance.clone(), zero_balance.clone()),
+					
+					locked_tokens_movie: zero_balance.clone(),
+					claimable_tokens_movie: zero_balance,
+				};
+
+				match (feature_type, token_type) {
+					(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = token_change.clone(),
+					(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = token_change.clone(),
+
+					(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = token_change.clone(),
+					(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = token_change.clone(),
+					
+					(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = token_change.clone(),
+					(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = token_change.clone(),
+					
+					(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = token_change.clone(),
+					(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = token_change.clone(),
+				};
+
+				//TODO add negative integer use case 
+				// (FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
+				// zero_balance.clone()
+				// .checked_sub(&total_tokens.clone())
+				// .ok_or(Error::<T>::Underflow)?,
+
+				WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
+
+				Ok(())
+			}
+
+
+			//
+			pub fn do_update_wallet_tokens_exists(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				token_type: TokenType,
+				token_change: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult  {
+
+				WalletTokens::<T>::try_mutate(who, |wal_tokens| -> DispatchResult {
+					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
+					
+					// dynamically select which token variable to update
+					match (feature_type, token_type) {
+						(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
+							Self::do_calculate_token_value(
+								wallet_tokens.locked_tokens_festival.clone(),
+								token_change,
+								is_slash,
+							)?,
+						(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = 
+							Self::do_calculate_token_value(
+								wallet_tokens.claimable_tokens_festival.clone(),
+								token_change, is_slash,
+							)?,
+	
+						(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = 
+							Self::do_calculate_token_value(
+								wallet_tokens.locked_tokens_ranking.clone(),
+								token_change, is_slash,
+							)?, 
+						(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = 
+							Self::do_calculate_token_value(
+								wallet_tokens.claimable_tokens_ranking.clone(),
+								token_change, is_slash,
+							)?,
+						
+						(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = 
+							Self::do_calculate_token_value(
+								wallet_tokens.locked_tokens_moderation.clone(),
+								token_change, is_slash,
+							)?,
+						(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = 
+							Self::do_calculate_token_value(
+								wallet_tokens.claimable_tokens_moderation.clone(),
+								token_change, is_slash,
+							)?,
+
+						(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = 
+							Self::do_calculate_token_value(
+								wallet_tokens.locked_tokens_movie.clone(),
+								token_change, is_slash,
+							)?,
+						(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = 
+							Self::do_calculate_token_value(
+								wallet_tokens.claimable_tokens_movie.clone(),
+								token_change, is_slash,
+							)?,
+					};
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+			pub fn do_calculate_token_value(
 				mut current_tokens: BalanceOf<T>,
 				token_change: BalanceOf<T>,
 				is_slash: bool,
 			) -> Result<BalanceOf::<T>, DispatchError>  {
 
 				// reset the locked tokens back to 0
-				
-				if token_change == BalanceOf::<T>::from(0u32) {
-					current_tokens = BalanceOf::<T>::from(0u32);
-				}
-				else if is_slash {
+				// if token_change == BalanceOf::<T>::from(0u32) {
+				// 	current_tokens = BalanceOf::<T>::from(0u32);
+				// }
+				if is_slash {
 					current_tokens =
 						current_tokens.clone()
 						.checked_sub(&token_change)
@@ -582,6 +617,226 @@ pub mod pallet {
 				}
 
 				Ok(current_tokens)
+			}
+
+
+
+
+
+
+
+
+			// Takes an "imbalance" (a fraction of staked/total) and updates 
+			// it depending on the current imbalance.
+			// if the nominator is higher than the the denominator, the quoeficient
+			// as an integer is returned alongside the new imbalance.
+			pub fn do_update_wallet_imbalance(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				new_earned: BalanceOf<T>,
+				total_earning_needed: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult  {
+
+				// this is the first instance where the wallet's tokens are updated
+				if !WalletTokens::<T>::contains_key(who.clone()) {
+					Self::do_handle_imbalance_wallet_doesnt_exist(
+						who, feature_type, 
+						new_earned, total_earning_needed,
+						is_slash,
+					)?;
+				}
+
+				// the wallet already contains an entry, retrieve & update
+				else {
+					Self::do_handle_imbalance_wallet_exists(
+						who,
+						feature_type, 
+						new_earned, total_earning_needed,
+						is_slash,
+					)?;
+				}
+
+				Ok(())
+			}
+
+
+
+			pub fn do_handle_imbalance_wallet_doesnt_exist(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				new_earned: BalanceOf<T>,
+				total_earning_needed: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult  {
+
+				let zero_balance = BalanceOf::<T>::from(0u32);
+				let mut wallet_tokens = Tokens {
+					reputation: T::DefaultReputation::get(),
+					locked_tokens_moderation: zero_balance.clone(),
+					claimable_tokens_moderation: zero_balance.clone(),
+					
+					locked_tokens_festival: zero_balance.clone(),
+					claimable_tokens_festival: zero_balance.clone(),
+					
+					locked_tokens_ranking: zero_balance.clone(),
+					claimable_tokens_ranking: zero_balance.clone(),
+					imbalance_tokens_ranking: (zero_balance.clone(), zero_balance.clone()),
+					
+					locked_tokens_movie: zero_balance.clone(),
+					claimable_tokens_movie: zero_balance,
+				};
+
+				match feature_type {
+					FeatureType::RankingList => {
+						let (new_balance, new_imbalance) = 
+							Self::do_calculate_imbalance_value(
+								BalanceOf::<T>::from(0u32),
+								new_earned,
+								total_earning_needed,
+								is_slash,
+							)?;
+						
+						wallet_tokens.imbalance_tokens_ranking = new_imbalance;
+
+						WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
+
+						// if new_balance > BalanceOf::<T>::from(0u32) {
+						// 	wallet_tokens.claimable_tokens_festival = 
+						// 		Self::do_calculate_token_value(
+						// 			wallet_tokens.claimable_tokens_festival.clone(),
+						// 			token_change, is_slash,
+						// 		)?,
+						// }
+					},
+					
+					_ => ()
+				};
+
+				//TODO add negative integer use case 
+
+				
+
+				Ok(())
+			}
+
+
+
+
+
+			// it depending on the current imbalance.
+			// if the nominator is higher than the the denominator, the quoeficient
+			// as an integer is returned alongside the new imbalance.
+			pub fn do_handle_imbalance_wallet_exists(
+				who: T::AccountId,
+				feature_type: FeatureType,
+				new_earned: BalanceOf<T>,
+				total_earning_needed: BalanceOf<T>,
+				is_slash: bool,
+			) -> DispatchResult  {
+
+				WalletTokens::<T>::try_mutate(who.clone(), |wal_tokens| -> DispatchResult {
+					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
+					
+					// dynamically select which token variable to update
+					match feature_type {
+						FeatureType::RankingList => {
+							let (current_earned, _) = 
+								wallet_tokens.imbalance_tokens_ranking;
+							
+							let (new_balance, new_imbalance) = 
+								Self::do_calculate_imbalance_value(
+									current_earned,
+									new_earned,
+									total_earning_needed,
+									is_slash,
+								)?;
+							
+							wallet_tokens.imbalance_tokens_ranking = new_imbalance;
+
+							if new_balance > BalanceOf::<T>::from(0u32) {
+								wallet_tokens.claimable_tokens_festival = 
+									// new_balance;
+									Self::do_calculate_token_value(
+										wallet_tokens.claimable_tokens_festival,
+										new_balance, is_slash,
+									)?;
+							}
+						},
+
+						_ => ()
+
+					};
+
+					Ok(())
+				})?;
+
+				Ok(())
+			}
+
+
+
+
+
+
+
+
+
+
+
+
+			// Takes an "imbalance" (a fraction of staked/total) and updates 
+			// it depending on the current imbalance.
+			// if the nominator is higher than the the denominator, the quoeficient
+			// as an integer is returned alongside the new imbalance.
+			pub fn do_calculate_imbalance_value(
+				mut current_earned: BalanceOf<T>,
+				new_earned: BalanceOf<T>,
+				total_earning_needed: BalanceOf<T>,
+				is_slash: bool,
+			) -> Result<(BalanceOf::<T>, (BalanceOf::<T>, BalanceOf::<T>)), 
+			DispatchError> {
+
+				let mut new_balance = BalanceOf::<T>::from(0u32);
+
+				// reset the locked tokens back to 0
+				// if new_earned == BalanceOf::<T>::from(0u32)
+				// && total_earning_needed == BalanceOf::<T>::from(0u32) {
+				// 	current_earned = BalanceOf::<T>::from(0u32);
+				// }
+				//TODO
+				// else if is_slash {
+				// 	current_imbalance =
+				// 		current_tokens.clone()
+				// 		.checked_sub(&token_change)
+				// 		.ok_or(Error::<T>::Underflow)?;
+				// }
+
+
+				if !is_slash {
+					current_earned =
+						current_earned
+						.checked_add(&new_earned)
+						.ok_or(Error::<T>::Overflow)?;
+					
+					if current_earned > total_earning_needed {
+						new_balance = 
+							current_earned
+							.checked_div(&total_earning_needed)
+							.ok_or(Error::<T>::Overflow)?;
+						
+						let imbalance = new_balance.saturating_mul(
+							total_earning_needed
+						);
+						
+						current_earned =
+							current_earned
+							.checked_sub(&imbalance)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+				}
+
+				Ok((new_balance, (current_earned, total_earning_needed)))
 			}
 
 
