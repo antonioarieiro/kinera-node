@@ -1,8 +1,19 @@
 //** About **//
-	// The basic representation of a movie in the system.
-	//TODO check the use of references in the helper functions that do not need to use .clone()
+	// Keeps track of a wallet's stats and tokens. Requires registration to be
+	// interacted with. If no entries exist when tokens/stats are allocated, one is
+	// automatically created for the wallet in question. Most other pallets reference
+	// this pallet and use it to keep track of allocated/claimable tokens. It holds
+	// tokens alongside the representation of how much each pallet has allocated
+	// per wallet. It is also used as an abstraction to transfer funds to/from the
+	// treasury, with the amount being designated per feature.
 	
-	
+	//TODO-0 add comments to the pallet
+	//TODO-1 check the use of references in the helper functions that do not need to use .clone()
+	//TODO-2 implement the treasury from this pallet and migrate all other treasuries here
+	//TODO-3 implement claim all tokens
+	//TODO-4 add negative integer use case when slashing below 0 or creating a negative entry
+	//TODO-5 add a static lookup for values like blocks per year when calculating imbalances
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -99,7 +110,7 @@ pub mod pallet {
 
 			// Stats that are bound to a wallet. This is required by many features, to ensure safety.
 			// The "..._public" boolean parameters and the name are both defined by the user upon creation.
-			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)] //TODO add type info
+			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 			pub struct Stats<BoundedName> {
 				pub is_name_public: bool,
 				pub is_wallet_public: bool,
@@ -109,9 +120,9 @@ pub mod pallet {
 			
 			// The "total_..." and "claimable_..." balance parameters are each updated by the corresponding app feature.
 			// To get the current locked balance, you must do "total_..." - "claimable_..." = "locked_...". 
-			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo,)] //TODO add type info
+			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo,)]
 			pub struct Tokens<Balance, TokenImbalance> {
-				pub reputation: u32,
+				pub reputation_moderation: u32,
 				pub locked_tokens_moderation: Balance,
 				pub claimable_tokens_moderation: Balance,
 				pub locked_tokens_festival: Balance,
@@ -142,10 +153,10 @@ pub mod pallet {
 				Stats<
 					BoundedVec<u8, T::NameStringLimit>,
 				>,
-			>; //TODO check why bounded vec has T::AccountId as the key
+			>;
 
 
-		// Keeps track of the amount of tokens (and reputation) a wallet has.
+		// Keeps track of the amount of tokens (and reputation_moderation) a wallet has.
 		// It is independent from the "WalletStats" storage, meaning an entry
 		// can exist by itself without being registed in "WalletStats".
 		#[pallet::storage]
@@ -158,8 +169,7 @@ pub mod pallet {
 					BalanceOf<T>,
 					(BalanceOf<T>, BalanceOf<T>),
 				>,
-			>; //TODO check why bounded vec has T::AccountId as the key
-
+			>;
 	
 	
 	//** Events **//
@@ -193,9 +203,12 @@ pub mod pallet {
 			DraftedModeratorNotRegistered,
 
 			BadMetadata,
-			Overflow,
-			Underflow,
 			WalletStatsRegistryRequired,
+			
+			TokenOverflow,
+			ReputationOverflow,
+			TokenUnderflow,
+			ReputationUnderflow,
 		}
 
 
@@ -212,6 +225,9 @@ pub mod pallet {
 		#[pallet::call]
 		impl<T:Config> Pallet<T> {
 
+
+			// Register a new wallet if previously unregistered.
+			// This is required by many features in the app.
 			#[pallet::weight(10_000)]
 			pub fn register_new_wallet(
 				origin: OriginFor<T>,
@@ -236,7 +252,7 @@ pub mod pallet {
 				if !WalletTokens::<T>::contains_key(who.clone()) {
 					let zero_balance = BalanceOf::<T>::from(0u32);
 					let tokens = Tokens {
-						reputation: T::DefaultReputation::get(),
+						reputation_moderation: T::DefaultReputation::get(),
 						locked_tokens_moderation: zero_balance.clone(),
 						claimable_tokens_moderation: zero_balance.clone(),
 						locked_tokens_festival: zero_balance.clone(),
@@ -262,6 +278,9 @@ pub mod pallet {
 			}
 
 
+			// Unregister a wallet, automatically claiming any leftover tokens.
+			//TODO-2
+			//TODO-3
 			#[pallet::weight(10_000)]
 			pub fn unregister_wallet(
 				origin: OriginFor<T>,
@@ -273,9 +292,6 @@ pub mod pallet {
 				let stats = WalletStats::<T>::try_get(who.clone()).unwrap();
 
 				WalletStats::<T>::remove(who.clone());
-
-				//TODO check all active interactions in the following pallets:
-				// social-space, festival, ranking-list, moderation
 
 				// check if events should be emitted, depending on the privacy settings
 				if stats.is_wallet_public {
@@ -291,9 +307,8 @@ pub mod pallet {
 
 
 
-
-
-
+			// Update all the privacy settings. This is done all at once, in order to
+			// save on otherwise multiple gas fees. 
 			#[pallet::weight(10_000)]
 			pub fn update_wallet_data(
 				origin: OriginFor<T>,
@@ -332,7 +347,7 @@ pub mod pallet {
 
 
 
-
+			//TODO-3
 			// #[pallet::weight(10_000)]
 			// pub fn claim_all_tokens(
 			// 	origin: OriginFor<T>,
@@ -349,15 +364,15 @@ pub mod pallet {
 			// 		let mut total_tokens = 
 			// 			zero_balance.clone()
 			// 			.checked_add(tokens.claimable_tokens_moderation)
-			// 			.ok_or(Error::<T>::Overflow)?;
+			// 			.ok_or(Error::<T>::TokenOverflow)?;
 			// 		total_tokens = 
 			// 			total_tokens
 			// 			.checked_add(tokens.claimable_tokens_festival)
-			// 			.ok_or(Error::<T>::Overflow)?;
+			// 			.ok_or(Error::<T>::TokenOverflow)?;
 			// 		total_tokens = 
 			// 			total_tokens
 			// 			.checked_add(tokens.claimable_tokens_ranking)
-			// 			.ok_or(Error::<T>::Overflow)?;
+			// 			.ok_or(Error::<T>::TokenOverflow)?;
 
 			// 		// ensure the transfer works
 			// 		ensure!(
@@ -403,32 +418,17 @@ pub mod pallet {
 						WalletStats::<T>::contains_key(moderator_id.clone()), 
 						Error::<T>::DraftedModeratorNotRegistered
 					);
-					let total_reputation = WalletTokens::<T>::try_get(&moderator_id).unwrap().reputation;
+					let total_reputation = WalletTokens::<T>::try_get(&moderator_id).unwrap().reputation_moderation;
 					btree.insert(moderator_id, total_reputation);
 				}
 
 				Ok(btree)
 			}
 				
-			// apply either positive or negative value changes
-			//TODO refactor into the token function
-			pub fn apply_reputation_value_change(
-				who: T::AccountId,
-				reputation_value: u32,
-			) -> Result<u32, DispatchError> {
-				
-				ensure!(
-					WalletTokens::<T>::contains_key(who.clone()), 
-					Error::<T>::WalletNotRegisteredStatTracker
-				);
 
-				let total_reputation = WalletTokens::<T>::get(who).unwrap().reputation;
 
-				total_reputation.checked_add(reputation_value).ok_or(Error::<T>::Overflow)?;
 
-				Ok(total_reputation)
-			}
-				
+
 			// True if the wallet is registered in the "WalletStats" storage.
 			// This always i mplies that an entry also exists e the 
 			// "WalletTokens" storage.
@@ -438,8 +438,7 @@ pub mod pallet {
 
 				Ok(WalletStats::<T>::contains_key(who))
 			}
-			
-
+		
 
 
 			// Used to abstract the "update_token" functions.
@@ -485,7 +484,7 @@ pub mod pallet {
 
 				let zero_balance = BalanceOf::<T>::from(0u32);
 				let mut wallet_tokens = Tokens {
-					reputation: T::DefaultReputation::get(),
+					reputation_moderation: T::DefaultReputation::get(),
 					locked_tokens_moderation: zero_balance.clone(),
 					claimable_tokens_moderation: zero_balance.clone(),
 					
@@ -514,11 +513,11 @@ pub mod pallet {
 					(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = token_change.clone(),
 				};
 
-				//TODO add negative integer use case 
+				//TODO-4 
 				// (FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
 				// zero_balance.clone()
 				// .checked_sub(&total_tokens.clone())
-				// .ok_or(Error::<T>::Underflow)?,
+				// .ok_or(Error::<T>::TokenUnderflow)?,
 
 				WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
 
@@ -607,13 +606,13 @@ pub mod pallet {
 					current_tokens =
 						current_tokens.clone()
 						.checked_sub(&token_change)
-						.ok_or(Error::<T>::Underflow)?;
+						.ok_or(Error::<T>::TokenUnderflow)?;
 				}
 				else {
 					current_tokens =
 						current_tokens.clone()
 						.checked_add(&token_change)
-						.ok_or(Error::<T>::Overflow)?;
+						.ok_or(Error::<T>::TokenOverflow)?;
 				}
 
 				Ok(current_tokens)
@@ -672,7 +671,7 @@ pub mod pallet {
 
 				let zero_balance = BalanceOf::<T>::from(0u32);
 				let mut wallet_tokens = Tokens {
-					reputation: T::DefaultReputation::get(),
+					reputation_moderation: T::DefaultReputation::get(),
 					locked_tokens_moderation: zero_balance.clone(),
 					claimable_tokens_moderation: zero_balance.clone(),
 					
@@ -713,7 +712,7 @@ pub mod pallet {
 					_ => ()
 				};
 
-				//TODO add negative integer use case 
+				//TODO-4 
 
 				
 
@@ -777,14 +776,6 @@ pub mod pallet {
 
 
 
-
-
-
-
-
-
-
-
 			// Takes an "imbalance" (a fraction of staked/total) and updates 
 			// it depending on the current imbalance.
 			// if the nominator is higher than the the denominator, the quoeficient
@@ -804,12 +795,12 @@ pub mod pallet {
 				// && total_earning_needed == BalanceOf::<T>::from(0u32) {
 				// 	current_earned = BalanceOf::<T>::from(0u32);
 				// }
-				//TODO
+				//TODO-4
 				// else if is_slash {
 				// 	current_imbalance =
 				// 		current_tokens.clone()
 				// 		.checked_sub(&token_change)
-				// 		.ok_or(Error::<T>::Underflow)?;
+				// 		.ok_or(Error::<T>::TokenUnderflow)?;
 				// }
 
 
@@ -817,13 +808,13 @@ pub mod pallet {
 					current_earned =
 						current_earned
 						.checked_add(&new_earned)
-						.ok_or(Error::<T>::Overflow)?;
+						.ok_or(Error::<T>::TokenOverflow)?;
 					
 					if current_earned > total_earning_needed {
 						new_balance = 
 							current_earned
 							.checked_div(&total_earning_needed)
-							.ok_or(Error::<T>::Overflow)?;
+							.ok_or(Error::<T>::TokenUnderflow)?;
 						
 						let imbalance = new_balance.saturating_mul(
 							total_earning_needed
@@ -832,12 +823,49 @@ pub mod pallet {
 						current_earned =
 							current_earned
 							.checked_sub(&imbalance)
-							.ok_or(Error::<T>::Underflow)?;
+							.ok_or(Error::<T>::TokenUnderflow)?;
 					}
 				}
 
 				Ok((new_balance, (current_earned, total_earning_needed)))
 			}
+
+
+
+
+
+			// // apply either positive or negative value changes
+			pub fn do_update_wallet_reputation(
+				who: T::AccountId,
+				new_reputation: u32,
+				is_slash: bool,
+			) -> Result<u32, DispatchError> {
+				
+				let mut final_reputation = 0u32;
+
+				final_reputation = WalletTokens::<T>::try_mutate(who.clone(), |wal_tokens| -> Result<u32, DispatchError> {
+					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
+					let mut current_reputation = wallet_tokens.reputation_moderation;
+
+					if is_slash {
+						current_reputation =
+							current_reputation
+							.checked_sub(new_reputation)
+							.ok_or(Error::<T>::ReputationUnderflow)?;
+					}
+					else {
+						current_reputation =
+							current_reputation
+							.checked_add(new_reputation)
+							.ok_or(Error::<T>::ReputationOverflow)?;
+					}
+
+					Ok(current_reputation)
+				})?;
+
+				Ok(final_reputation)
+			}
+				
 
 
 

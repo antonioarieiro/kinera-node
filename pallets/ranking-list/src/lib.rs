@@ -2,23 +2,13 @@
 	// Ranking lists order content based on votes and provide staking
 	// based on locked funds.
 	// new era > find staking differences > reward top 1000 films
-	//TODO add APY to governance
-	//TODO improve Deadlines
-	//TODO optimize
+	
+	//TODO-0 add dynamic APY to governance
+	//TODO-1 add dynamic deadlines, where if a MaxListsPerBlock is exceeded, a new block automatically calculated 
+	//TODO-2 compare mint_into vs deposit_into_existing
+	//TODO-3 validate the inserted deadline when creating a ranking list
+	//TODO-4 improve the blocks_per_year calculation by creating a static variable in stat-tracker
 
-	//TODO
-
-	// mint_into(
-	// 	asset: Self::AssetId,
-	// 	who: &<T as SystemConfig>::AccountId,
-	// 	amount: Self::Balance
-	// ) -> DispatchResult
-
-	// frame_support::traits::tokens::fungible::Mutate::mint_into(
-	// 	// Self::AssetId,
-	// 	&Self::account_id(), 
-	// 	amount.clone(),
-	// );
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -95,6 +85,7 @@ pub mod pallet {
 				type MaxListsPerBlock: Get<u32>;
 				type MaxVotersPerList: Get<u32>;
 				type MaxMoviesInList: Get<u32>;
+				type MinVoteAmount: Get<u32>;
 
 				// the minimum amount of blocks between a ranking list's refresh period
 				type MinimumListDuration: Get<u32>;
@@ -244,8 +235,10 @@ pub mod pallet {
 			
 				let votes_by_user: BoundedBTreeMap<
 					T::AccountId,
-					BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>,
-					T::MaxVotersPerList> 
+					BoundedVec<
+						RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>,
+						T::MaxVotersPerList,
+					> 
 				= BoundedBTreeMap::new();
 
 				let ranking_list = RankingList {
@@ -325,6 +318,7 @@ pub mod pallet {
 			MovieAddedToList(RankingListId,BoundedVec<u8, T::LinkStringLimit>,T::AccountId),
 			VotedInFestival(T::AccountId, RankingListId),	
 			RankingTokensClaimed(T::AccountId, BalanceOf<T>),	
+			RankingListPayoff(RankingListId),	
 		}
 
 
@@ -343,7 +337,7 @@ pub mod pallet {
 			InvalidVote,
 			RankingListNotFound,
 			MovieNotInRankingList,
-			StakingWithNoValue,
+			VoteAmountTooLow,
 			ListDurationTooShort,
 			WalletStatsRegistryRequired,
 		}
@@ -411,7 +405,7 @@ pub mod pallet {
 				let movies_in_list: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList> =
 					TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata)?;
 
-				//TODO validate deadline blocks
+				//TODO-3
 				ensure!(list_duration >= T::MinimumListDuration::get().into(), Error::<T>::ListDurationTooShort);
 				let current_block = <frame_system::Pallet<T>>::block_number();
 				let list_deadline_block = current_block.checked_add(&list_duration).ok_or(Error::<T>::Overflow)?;
@@ -541,7 +535,8 @@ pub mod pallet {
 
 				// ensure ranking list id exists
 				ensure!(RankingLists::<T>::contains_key(list_id.clone()), Error::<T>::RankingListNotFound);
-
+				ensure!(amount >= BalanceOf::<T>::from(T::MinVoteAmount::get()), Error::<T>::VoteAmountTooLow);
+				
 				//mutate the storage, while creating the Vote & bonding
 				RankingLists::<T>::try_mutate_exists(list_id, |ranking_list| -> DispatchResult {
 					let list = ranking_list.as_mut().ok_or(Error::<T>::BadMetadata)?;
@@ -609,7 +604,7 @@ pub mod pallet {
 				T::Currency::deposit_into_existing(
 					&who.clone(),
 					claimable_tokens_ranking.clone(), 
-				); //TODO .ok() check if it works
+				);
 				
 				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 					who.clone(), 
@@ -714,11 +709,12 @@ pub mod pallet {
 
 				// Resolves a single Ranking List. 
 				// This means determining the winner(s) and distributing the rewards accordingly.
-				pub fn resolve_ranking_list(list_id: RankingListId) 
-				-> Result<BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>, DispatchError> {
+				pub fn resolve_ranking_list(
+					list_id: RankingListId
+				) -> Result<BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>, DispatchError> {
 				
 					// get the ranking list
-					let ranking_list = RankingLists::<T>::try_get(list_id).unwrap();
+					let ranking_list = RankingLists::<T>::try_get(list_id.clone()).unwrap();
 
 					// create a Btree that pairs movie ids to their total voting power
 					let mut movies_by_power: BoundedBTreeMap<
@@ -731,21 +727,20 @@ pub mod pallet {
 					}
 
 					// iterate each user's votes for the ranking list and calculate the return
-					let blocks_in_year: u32 = 5256000; //TODO optimize
+					let blocks_in_year: u32 = 5256000; //TODO-4
 					for (account_id, vote_list) in ranking_list.votes_by_user.iter() {
 						
 						// get each vote's total power, adding it to movies_by_power and tallying the total tokens
 						let mut total_return = BalanceOf::<T>::from(0u32);
 						for vote in vote_list {
 							// increase total voting power for the user's choice
-							let voting_power = Self::do_calculate_voting_power(vote.locked_amount, vote.conviction)?; //TODO add conviction
+							let voting_power = Self::do_calculate_voting_power(vote.locked_amount, vote.conviction)?;
 							movies_by_power.get_mut(&vote.movie_id).unwrap().checked_add(&voting_power).ok_or(Error::<T>::Overflow)?;
 							// tally the tokens
 							total_return = total_return.checked_add(&vote.locked_amount).ok_or(Error::<T>::Overflow)?;
 						}
 
 						// (total_stake / Blocks_Per_Year) * (APY / 100) = (total_stake * APY) / (Blocks_Per_Year * 100)
-						// //TODO trasnfer the 10 balance into a config variable -> it's the apy value
 						let new_earning = 
 							total_return
 							.saturating_mul(10u32.into());
@@ -782,6 +777,7 @@ pub mod pallet {
 					let ordered_movies: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>
 						= TryInto::try_into(ordered_movies_power).map_err(|_|Error::<T>::BadMetadata)?;
 					
+					Self::deposit_event(Event::RankingListPayoff(list_id));
 					Ok(ordered_movies)
 				}
 

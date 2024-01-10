@@ -2,10 +2,10 @@
 	// This pallet handles information regarding Categories/Tags. 
 	// These classifications act as a way to classify existing content,
 	// providing a framework to feed other systems with information.
-	//TODO add resctrictions and limitations to add new categories/tags
-	//TODO add meaningful metrics that interact with this system
-	//TODO document with diagrams
-	//TODO add films to the Tags storage in a future field for relevant content 
+	
+	//TODO-0 add resctrictions and limitations to add new categories/tags
+	//TODO-1 check if ContentStringLimit is needed as is, or parse boundedvecs into this specific format
+	//TODO-2 validate description when creating a new tag
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -50,7 +50,7 @@ pub mod pallet {
 				
 				type MaxTags: Get<u32>;
 				type MaxContentWithTag: Get<u32>; 
-				type ContentStringLimit: Get<u32>; //TODO check if needed
+				type ContentStringLimit: Get<u32>; //TODO-1
 
                 type CategoryStringLimit: Get<u32>;
 				type TagStringLimit: Get<u32>;
@@ -242,22 +242,23 @@ pub mod pallet {
         //     }
 
             
-        //     #[pallet::weight(10_000)]
-        //     pub fn create_tag(
-        //         origin: OriginFor<T>,
-        //         bounded_tag: TagId<T>,
-        //         bounded_category: CategoryId<T>,
-        //         bounded_description: BoundedVec<u8, T::DescStringLimit>,
-        //     ) -> DispatchResult {
+            // #[pallet::weight(10_000)]
+            // pub fn create_tag(
+            //     origin: OriginFor<T>,
+            //     bounded_tag: TagId<T>,
+            //     bounded_category: CategoryId<T>,
+            //     bounded_description: BoundedVec<u8, T::DescStringLimit>,
+            // ) -> DispatchResult {
                 
-        //         let who = ensure_signed(origin)?;
-        //         Self::do_validate_tag(bounded_tag.clone(), bounded_category.clone())?; //TODO validate description
+            //     let who = ensure_signed(origin)?;
+            //     Self::do_validate_tag(bounded_tag.clone(), bounded_category.clone())?;
+			// 	//TODO-2
 
-        //         Self::do_create_tag(bounded_tag.clone(), bounded_category.clone(), bounded_description.clone())?;
+            //     Self::do_create_tag(bounded_tag.clone(), bounded_category.clone(), bounded_description.clone())?;
 				
-        //         Self::deposit_event(Event::TagCreated(who.clone(), bounded_tag, bounded_category));
-        //         Ok(())
-        //     }
+            //     Self::deposit_event(Event::TagCreated(who.clone(), bounded_tag, bounded_category));
+            //     Ok(())
+            // }
         
 		
 		}

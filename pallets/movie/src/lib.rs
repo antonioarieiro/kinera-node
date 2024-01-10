@@ -2,8 +2,9 @@
 	// This pallet tracks all information regarding movie entries.
     // The movies it contains can be either internal (uploaded to a storage platform associated with the network)
     // and external (content that externally sourced).
-    //TODO merge internal and external storages into a single storage.
-    //TODO add checks to see if the movies still exist.
+    
+    //TODO-0 merge internal and external storages into a single storage. for example through a doublemap
+    //TODO-1 add checks to see if the movies still exist.
 
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -377,9 +378,7 @@ pub mod pallet {
                 let bounded_movie_id: BoundedVec<u8, T::LinkStringLimit> = 
                     TryInto::try_into(encoded.clone()).map_err(|_|Error::<T>::BadMetadata)?;
 
-                //TODO ensure it doesn't exist
                 InternalMovies::<T>::insert(bounded_movie_id.clone(), movie.clone());
-                Self::deposit_event(Event::InternalMovieCreated(bounded_movie_id.clone(), who.clone()));
 
                 // parse the u32 type into a BoundedVec<u8, T::ContentStringLimit
                 let bounded_content_id: BoundedVec<u8, T::ContentStringLimit> = 
@@ -391,6 +390,7 @@ pub mod pallet {
                     bounded_content_id,
                 )?;
         
+                Self::deposit_event(Event::InternalMovieCreated(bounded_movie_id, who.clone()));
                 Ok(movie_id.clone())
             } 
         
@@ -471,7 +471,6 @@ pub mod pallet {
             pub fn get_movie_uploader(
                 movie_id : BoundedVec<u8, T::LinkStringLimit>,
             ) -> Result<T::AccountId, DispatchError> {
-                //TODO optimize
                 
                 let mut uploader;
                 if InternalMovies::<T>::contains_key(movie_id.clone()) {

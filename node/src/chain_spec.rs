@@ -309,7 +309,7 @@ fn testnet_genesis(
 		) = (
 			"All Times, Best Films".as_bytes().to_vec().try_into().unwrap(),
 			"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
-			BlockNumber::from(25u32),
+			BlockNumber::from(4800u32),
 			TryInto::try_into(vec![(
 				"Just FUN".as_bytes().to_vec().try_into().unwrap(),
 				"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),

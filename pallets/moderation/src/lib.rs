@@ -3,12 +3,25 @@
 	// drafting them for reports, handling voting consensus and reward splitting.
 	// A reported content's id is matched to unique report structures that return its specific information,
 	// or information regarding each moderation "tier" or court.
-	//TODO abstract treasury features to single pallet
-	//TODO fix account_id as a storage key being a reference (&)
-	//TODO remove the claimable amount from this pallet (already in stat_tracker)
-	//TODO check T::Currency::unreserve(&reportee, collateral);
-	
-	
+	//TODO-0 remove the claimable amount from this pallet (already in stat_tracker)
+	//TODO-1 check T::Currency::unreserve(&reportee, collateral);
+	//TODO-2 implement MaxReportsByTier dynamically with ModeratorLimitByTier, through a switch case
+	//TODO-3 make a new storage for unallocated_moderators, or find another solution
+	//TODO-4 update veredicts after time limit if no appeal or vote is made
+	//TODO-5 call stat tracker and check if enough reputation when apllying for moderator
+	//TODO-6 automatically retrieve the reportee_id when creating a report
+	//TODO-7 check if report is already ongoing for that content when creating a new report
+	//TODO-8 suspend content after a successful report
+	//TODO-9 optimize moderator drafting
+	//TODO-10 check if the justification is not empty when creating a report
+	//TODO-11 optimize do_get_current_report_tier_data
+	//TODO-12 check iter_key_prefix
+	//TODO-13 add ok_or to do_create_vote
+	//TODO-14 use arithmetic in do_calculate_vote_consensus
+	//TODO-15 use drain_filter (currently unstable) instead of retain
+
+
+
 	#![cfg_attr(not(feature = "std"), no_std)]
 
 	pub use pallet::*;
@@ -88,7 +101,7 @@ pub mod pallet {
 				type ContentId: Member + Parameter + AtLeast32BitUnsigned + Default + Copy + MaxEncodedLen;
 				type MaxReportsByModerator: Get<u32>;
 				type TotalTierOneModerators: Get<u32>;
-				type MaxReportsByTier: Get<u32>; // TODO implement dynamically with ModeratorLimitByTier
+				type MaxReportsByTier: Get<u32>;
 			
 				type MinimumTokensForModeration: Get<BalanceOf<Self>>; 
 				type MovieCollateral: Get<BalanceOf<Self>>; 
@@ -133,7 +146,7 @@ pub mod pallet {
 			#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 			pub enum ReportStatus {
 				InResolution,
-				MajorityVotedFor, // TODO rename to in favour
+				MajorityVotedFor,
 				MajorityVotedAgainst,
 				AppealedByReporter,
 				AppealedByReportee,
@@ -184,7 +197,6 @@ pub mod pallet {
 			pub struct Moderator<ReportList, ModeratorRank> {
 				pub assigned_reports: ReportList,
 				pub rank: ModeratorRank,
-				pub total_points: u32,
 			}
 
 			#[derive(Clone, Encode, Copy, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
@@ -232,7 +244,6 @@ pub mod pallet {
 			// Match a moderator's id to its moderator information.
 			// Also keeps track of the total number of moderators,
 			// to ensure there are enough moderators.
-			//TODO make a new storage for unallocated_moderators
 			#[pallet::storage]
 			pub type Moderators<T: Config> =
 				CountedStorageMap<
@@ -290,6 +301,7 @@ pub mod pallet {
 		#[pallet::error]
 		pub enum Error<T> {
 			Overflow,
+			VoteOverflow,
 			Underflow,
 			BadMetadata,
 			
@@ -317,8 +329,7 @@ pub mod pallet {
 
 		#[pallet::hooks]
 		impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-			// TODO check if any report is past due
-			// TODO update veredicts after time limit if no appeal is made
+			
 		}
 	
 
@@ -340,7 +351,7 @@ pub mod pallet {
 					pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
 					Error::<T>::WalletStatsRegistryRequired,
 				);
-				// TODO call tracker and check if enough reputation
+				
 				
 				Self::do_transfer_funds_to_treasury(who.clone(), T::MinimumTokensForModeration::get())?;
 				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
@@ -349,7 +360,7 @@ pub mod pallet {
 					pallet_stat_tracker::TokenType::Locked,
 					T::MinimumTokensForModeration::get(), false
 				)?;
-				Self::do_create_moderator(who.clone())?; //TODO extract the config get
+				Self::do_create_moderator(who.clone())?;
 				
 				Self::deposit_event(Event::ModeratorRegistered(who));
 				Ok(())
@@ -383,6 +394,7 @@ pub mod pallet {
 			}	
 
 
+			
 			#[pallet::weight(10_000)]
 			pub fn create_report(
 				origin: OriginFor<T>,
@@ -406,7 +418,7 @@ pub mod pallet {
 				Self::do_validate_report_data (
 					content_id, content_type, justification.clone(), 
 					category_type.clone(), category_tag_list.clone()
-				)?; //TODO check if report is ongoing
+				)?; 
 
 				let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
 				Self::do_transfer_funds_to_treasury(who.clone(), reward_pool.0)?;
@@ -417,8 +429,7 @@ pub mod pallet {
 					reward_pool.0, false,
 				)?;
 
-				let moderator_btree = Self::do_get_moderator_btree()?;
-				let drafted_moderators = Self::do_draft_moderators_from_btree(moderator_btree, T::TotalTierOneModerators::get())?;
+				let drafted_moderators = Self::do_draft_moderators(who.clone(), reportee_id.clone())?;
 
 				Self::do_create_report(who, content_id, content_type, reportee_id, justification, category_tag_list.clone())?;
 				Self::do_create_report_verdict(content_id, content_type, Tiers::TierOne, reward_pool.1)?;
@@ -513,7 +524,6 @@ pub mod pallet {
 						
 						Self::do_distribute_rewards_to_majority_voters(report_voters.0, majority_voter_reward)?;
 						Self::do_slash_tokens_from_minority_voters(report_voters.1)?;
-						//TODO handle reputation/token threshold for each voter
 						
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
@@ -533,7 +543,7 @@ pub mod pallet {
 								pallet_stat_tracker::TokenType::Claimable,
 								reporter_reward, false,
 							)?;
-							// TODO suspend content
+							
 						}
 					} 
 					Self::deposit_event(Event::ReportClosed(content_id, report_status));
@@ -567,7 +577,7 @@ pub mod pallet {
 						Self::do_grab_reportee_collateral(content_id, content_type, reportee_slash)?;
 					}
 					
-					for tier in tier_data.3 { // TODO extract to helper funcs
+					for tier in tier_data.3 {
 						let report_voters = Self::do_get_report_voters_by_vote(content_id, content_type, tier, consensus)?;
 						let reward_pool = Self::do_get_total_moderation_pool(content_id, content_type, tier)?;
 						let majority_voter_reward = Self::do_calculate_majority_voter_reward(reward_pool, report_voters.0.len() as u32)?;
@@ -620,29 +630,28 @@ pub mod pallet {
 
 				else {
 					let appeal_fee = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?.0;
+					let reporter_id = Self::do_get_reporter(content_id, content_type)?;
+					let reportee_id = Self::do_get_reportee(content_id, content_type)?;
 					if is_reporter {
-						let reporter_id = Self::do_get_reporter(content_id, content_type)?;
 						Self::do_transfer_funds_to_treasury(reporter_id.clone(), appeal_fee)?;
 						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
-							reporter_id, 
+							reporter_id.clone(), 
 							pallet_stat_tracker::FeatureType::Moderation,
 							pallet_stat_tracker::TokenType::Locked,
 							appeal_fee, false,
 						)?;
 					}
 					else {
-						let reportee_id = Self::do_get_reportee(content_id, content_type)?;
 						Self::do_transfer_funds_to_treasury(reportee_id.clone(), appeal_fee)?;
 						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
-							reportee_id, 
+							reportee_id.clone(), 
 							pallet_stat_tracker::FeatureType::Moderation,
 							pallet_stat_tracker::TokenType::Locked,
 							appeal_fee, false,
 						)?;
 					}
 
-					let moderator_btree = Self::do_get_moderator_btree()?;
-					let drafted_moderators = Self::do_draft_moderators_from_btree(moderator_btree, T::TotalTierOneModerators::get())?;
+					let drafted_moderators = Self::do_draft_moderators(reporter_id, reportee_id)?;
 					let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
 
 					Self::do_create_report_verdict(content_id, content_type, tier_data.1, reward_pool.1)?;
@@ -686,7 +695,6 @@ pub mod pallet {
 					let moderator = Moderator {	
 						assigned_reports: empty_bounded_reports,
 						rank: ModeratorRank::Junior,
-						total_points: 0u32,
 					};
 					
 					Moderators::<T>::insert(who, moderator.clone());
@@ -695,27 +703,27 @@ pub mod pallet {
 				} 
 
 
-				pub fn do_get_moderator_btree(
-				) -> Result<BTreeMap<T::AccountId, u32>, DispatchError> { 
+				pub fn do_draft_moderators(
+					reporter_id: T::AccountId,
+					reportee_id: T::AccountId,
+				) -> Result<Vec<T::AccountId>, DispatchError> { 
 					
-					let moderator_data: Vec<T::AccountId> = Moderators::<T>::iter().map(|(x, _)| x).collect(); //TODO optimize
-					// TODO add iter keys, this version does not support them (https://github.com/paritytech/substrate/pull/9238))
 					
-					ensure!(moderator_data.size_hint() >= T::TotalTierOneModerators::get() as usize, Error::<T>::NotEnoughModeratorsRegistered);
-					let btree = pallet_stat_tracker::Pallet::<T>::create_moderator_btree(moderator_data).unwrap();
+					let mut moderator_data: Vec<T::AccountId> = 
+						Moderators::<T>::iter().map(|(x, _)| x).collect(); 
+					// add iter keys, this version does not support them (https://github.com/paritytech/substrate/pull/9238))
+					
+					moderator_data.retain(|x| x != &reporter_id && x != &reportee_id);
+					//(x != reporter_id && x != reportee_id)
+					// majority_votes.retain(|vote| vote.is_for == VoteChoice::For); 
+					
+					let drafted_moderators = moderator_data.drain(0..3).collect();
+					// ensure!(moderator_data.len() >= T::TotalTierOneModerators::get() as usize, Error::<T>::NotEnoughModeratorsRegistered);
+					// let btree = pallet_stat_tracker::Pallet::<T>::create_moderator_btree(drafted_moderators).unwrap();
 
-					Ok(btree)
-				} 	
-				
-
-				pub fn do_draft_moderators_from_btree(
-					btree: BTreeMap<T::AccountId, u32>,
-					required_moderators: u32,
-				) -> Result<Vec<T::AccountId>, DispatchError> { // BTreeMap<T::AccountId, u32>
-
-					let drafted_moderators = btree.into_keys().take(required_moderators as usize).collect();
 					Ok(drafted_moderators)
 				} 	
+				
 				
 
 				pub fn do_assign_report_to_moderators(
@@ -727,7 +735,7 @@ pub mod pallet {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
 							let moderator  = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 							moderator.assigned_reports.try_push(content_id).unwrap();
-							//TODO optionally send a push notification in the next hook
+							
 							Ok(())
 						})?;
 					}
@@ -821,14 +829,13 @@ pub mod pallet {
 					category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 				) -> Result<(), DispatchError> {
 					
-					//TODO match type to corresponding pallet and check if exists
                     pallet_tags::Pallet::<T>::validate_tag_data(
                         category_type, 
                         category_tag_list.clone()
                     )?;
 
 					ensure!(!Reports::<T>::contains_key((content_id, content_type)), Error::<T>::ReportAlreadyOngoing);
-					//TODO check if the justification is not empty
+					
 					Ok(())
 				} 
 				
@@ -870,7 +877,6 @@ pub mod pallet {
 					category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 				) -> Result<(), DispatchError> {
 
-					//TODO hash content_id together with the content_type
 					let report = Report {
 							reporter_id: who.clone(),
 							reportee_id: reportee_id.clone(),
@@ -912,11 +918,11 @@ pub mod pallet {
 					
 					ensure!(ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierOne), Error::<T>::NonexistentReport);
 					let mut current_tier = Tiers::TierOne;
-					let mut next_tier = Tiers::TierTwo; // TODO refactor this function
+					let mut next_tier = Tiers::TierTwo;
 					let mut is_appealable = true;
 					let mut all_tiers : Vec<Tiers> = vec![Tiers::TierOne];
 
-					if ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierThree) { //TODO ensure the report exists
+					if ReportVerdicts::<T>::contains_key((content_id.clone(), content_type), Tiers::TierThree) {
 						current_tier = Tiers::TierThree; 
 						next_tier = Tiers::TierThree;
 						all_tiers.append(&mut vec![Tiers::TierTwo, Tiers::TierThree]);
@@ -927,7 +933,7 @@ pub mod pallet {
 						next_tier = Tiers::TierThree;
 						all_tiers.append(&mut vec![Tiers::TierTwo]);
 					}
-					// ReportVerdicts::<T>::iter_key_prefix(|content_id| {});  // TODO not implemented for this version
+					//TODO-12
 
 					Ok((current_tier, next_tier, is_appealable, all_tiers))
 				} 
@@ -1073,10 +1079,11 @@ pub mod pallet {
 						if is_for == VoteChoice::For { 
 							outcome.votes_for = 
 								outcome.votes_for
-								.checked_add(One::one()).ok_or(Error::<T>::Overflow)?;
+								.checked_add(One::one())
+								.ok_or(Error::<T>::VoteOverflow)?;
 						};
 						Ok(())
-					}) //TODO add ok_or
+					})//TODO-13
 				} 
 				
 				
@@ -1102,7 +1109,7 @@ pub mod pallet {
 					
 					let mut result = ReportStatus::MajorityVotedAgainst;
 					let vote_consensus = ReportVerdicts::<T>::get((content_id.clone(), content_type), tier).ok_or(Error::<T>::NonexistentReport)?;
-					if (vote_consensus.votes_for * 1000) > ((vote_consensus.required_votes * 1000) / 2) as u32  { // TODO use arithmetic
+					if (vote_consensus.votes_for * 1000) > ((vote_consensus.required_votes * 1000) / 2) as u32  { 
 						result = ReportStatus::MajorityVotedFor;
 					}
 					
@@ -1123,7 +1130,7 @@ pub mod pallet {
 					if consensus == ReportStatus::MajorityVotedFor || consensus == ReportStatus::AppealedByReportee {
 						majority_votes.retain(|vote| vote.is_for == VoteChoice::For); 
 						minority_votes.retain(|vote| vote.is_for == VoteChoice::Against); 
-						// TODO use drain_filter (currently unstable) instead of retain
+						
 					} 
 					else if consensus == ReportStatus::MajorityVotedAgainst || consensus == ReportStatus::AppealedByReporter {
 						majority_votes.retain(|vote| vote.is_for == VoteChoice::Against); 
@@ -1235,22 +1242,28 @@ pub mod pallet {
 				) -> Result<(), DispatchError> {	
 					
 					for moderator_id in majority_voters.iter() {
-						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
-							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
-								moderator_id.clone(), 
-								pallet_stat_tracker::FeatureType::Moderation,
-								pallet_stat_tracker::TokenType::Claimable,
-								reward, false,
-							)?;
-							
-							let moderator = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-							moderator.total_points = moderator.total_points.checked_add(1u32).ok_or(Error::<T>::Overflow)?;
-							if moderator.total_points > 9 {
-								moderator.rank = ModeratorRank::Senior;
-							}
-
-							Ok(())
-						})?;
+						
+						pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+							moderator_id.clone(), 
+							pallet_stat_tracker::FeatureType::Moderation,
+							pallet_stat_tracker::TokenType::Claimable,
+							reward, false,
+						)?;
+						
+						let new_reputation = pallet_stat_tracker::Pallet::<T>::do_update_wallet_reputation(
+							moderator_id.clone(), 
+							3u32, false,
+						)?;
+						
+						if new_reputation > 9  {
+							Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
+								let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
+								moderator_data.rank = ModeratorRank::Senior;
+	
+								Ok(())
+							})?;
+						}
+						
 					}
 
 					Ok(())
@@ -1264,6 +1277,7 @@ pub mod pallet {
 					for moderator_id in minority_voters.iter() {
 						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
 							let moderator  = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
+							
 							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 								moderator_id.clone(), 
 								pallet_stat_tracker::FeatureType::Moderation,
@@ -1271,10 +1285,20 @@ pub mod pallet {
 								moderator_fee, true
 							)?;
 							
-							moderator.total_points = moderator.total_points.checked_sub(1u32).ok_or(Error::<T>::Overflow)?;
-							if moderator.total_points < 10 {
-								moderator.rank = ModeratorRank::Junior;
+							let new_reputation = pallet_stat_tracker::Pallet::<T>::do_update_wallet_reputation(
+								moderator_id.clone(), 
+								3u32, true,
+							)?;
+							
+							if new_reputation < 10  {
+								Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
+									let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
+									moderator_data.rank = ModeratorRank::Junior;
+		
+									Ok(())
+								})?;
 							}
+
 							Ok(())
 						})?;
 					}
@@ -1366,8 +1390,6 @@ pub mod pallet {
 				}
 
 			//* Utils *//
-
-				//TODO implement hash_content_id
 
 				// The account ID of the vault
 				fn account_id() -> T::AccountId {

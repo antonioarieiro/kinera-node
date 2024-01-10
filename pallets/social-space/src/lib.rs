@@ -1,6 +1,13 @@
 //** About **//
-	// Information regarding the pallet
-	//TODO transform u8 into boudned string
+	// Social Network inside the app. This is separated from the rest of the pallets
+	// and exists as its own thing. Profiles can interact with each other outside of
+	// the realm of curation. Each wallet can have a social space which can then
+	// follow/be folowed by other wallets. A comment system with nested replies
+	// also exists.
+	
+	//TODO-0 add comments to the pallet
+	//TODO-1 this is already stored in the "posts" field of the space, but only by ID. This duplicates data.
+	//TODO-2 improve performance by sorting followers/following by map, instead of .retain() on a vec.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -137,8 +144,7 @@ pub mod pallet {
 
 
 			// Matches a wallet's account_id (and therefore its space) to the list of posts they have created.
-			//TODO this is already stored in the "posts" field of the space, but only by ID
-			//TODO this duplicates data
+			//TODO-1
 			#[pallet::storage]
 			#[pallet::getter(fn posts_by_space)]
 			pub type PostsBySpace<T: Config> = StorageMap<
@@ -294,7 +300,7 @@ pub mod pallet {
 				
 				Spaces::<T>::insert(who.clone(), space);
 
-				//TODO already included in the space's "posts" param, but by id and not the actual space struct
+				//TODO-1
 				let bounded_post_list: BoundedVec<Post<T::AccountId,T::PostId,BoundedVec<u8, T::CommentStringLimit>,BoundedVec<u8, T::LinkStringLimit>,T::BlockNumber,>, T::MaxPostsPerSpace> =
 					TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata)?;
 				let space_posts = SpacePosts {
@@ -399,7 +405,7 @@ pub mod pallet {
 						let target_space = target.as_mut().ok_or(Error::<T>::SpaceNotFound)?;
 						ensure!(!target_space.followers.contains(&who.clone()), Error::<T>::AlreadyFollowing);
 
-						//TODO optimize
+						//TODO-2
 						origin_space.following.retain(|user| user != &other.clone());
 						target_space.followers.retain(|user| user != &who.clone());
 

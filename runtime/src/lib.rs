@@ -1000,7 +1000,7 @@ parameter_types! {
 	pub const MaxMoviesInFest: u32 = 1000;
 	pub const MaxOwnedFestivals: u32 = 50000;
 	pub const MinFesBlockDuration: u32 = 1; // prev 3600
-	pub const FestBlockSafetyMargin: u32 = 2; // prev 10
+	pub const FestBlockSafetyMargin: u32 = 1; // prev 10
 	pub const MaxFestivalsPerBlock: u32 = 500;
 	pub const MaxVotes: u32 = 100000;
 	pub const PalletFestivalId: PalletId = PalletId(*b"FesStash");
@@ -1078,6 +1078,7 @@ parameter_types!{
 	pub const RankingStringLimit: u32 = 50;
 	pub const MaxMoviesInList: u32 = 100000;
 	pub const MinimumListDuration: u32 = 3600; // six hours in blocks
+	pub const MinVoteAmount: u32 = 10000; // six hours in blocks
 	pub const MaxVotersPerList: u32 = 10000000;
 	pub const MaxListsPerBlock: u32 = 50;
 }
@@ -1089,6 +1090,7 @@ impl pallet_ranking_list::Config for Runtime {
 	type MaxVotersPerList = MaxVotersPerList;
 	type MaxMoviesInList = MaxMoviesInList;
 	type MinimumListDuration = MinimumListDuration;
+	type MinVoteAmount = MinVoteAmount;
     type RankingStringLimit = RankingStringLimit;
     type PalletId = PalletRankingListId;
 }
