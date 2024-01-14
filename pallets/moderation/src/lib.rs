@@ -1255,7 +1255,7 @@ pub mod pallet {
 							3u32, false,
 						)?;
 						
-						if new_reputation > 9  {
+						if new_reputation > 14  {
 							Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
 								let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 								moderator_data.rank = ModeratorRank::Senior;
@@ -1290,7 +1290,7 @@ pub mod pallet {
 								3u32, true,
 							)?;
 							
-							if new_reputation < 10  {
+							if new_reputation < 15  {
 								Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
 									let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 									moderator_data.rank = ModeratorRank::Junior;

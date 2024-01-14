@@ -1121,7 +1121,7 @@ impl pallet_social_space::Config for Runtime {
 // Stat Tracker
 
 parameter_types! {
-	pub const DefaultReputation: u32 = 100;
+	pub const DefaultReputation: u32 = 15;
 }
 
 impl pallet_stat_tracker::Config for Runtime {
