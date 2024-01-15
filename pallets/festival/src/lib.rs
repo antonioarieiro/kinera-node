@@ -1,6 +1,6 @@
 //** About **//
 	// Information regarding the pallet
-    // note_1: The reason the festival duration storages are seperate is to facilitate block iteration during hooks.
+    // note_1: The reason the festival duration storages are separate is to facilitate block iteration during hooks.
     //TODO-0 ensure movies exist
     //TODO-1 extract private festivals form the create festival ext
     //TODO-2 check if sorting a list and calling dedup is faster than calling retain
@@ -11,7 +11,6 @@
     //TODO-7 bugged and emits an error
     //TODO-8 check if creator is still registered when activating a festival
     //TODO-9 handle error conditions
-    //TODO-10 update min_entry to max_entry
     
 
 
@@ -128,7 +127,7 @@ pub mod pallet {
                 pub name: BoundedNameString,
                 pub description: BoundedDescString,
                 pub status: FestivalStatus,
-                pub min_entry: BalanceOf,
+                pub max_entry: BalanceOf,
                 pub total_lockup: BalanceOf,
                 pub vote_list: VoteList,
                 pub categories_and_tags: CategoryTagList,
@@ -272,7 +271,9 @@ pub mod pallet {
             FestivalNotAcceptingNewMovies,
             CannotVoteInOwnFestival,
 
-            VoteAmountCannotBeZero,
+            VoteMaxAmountCannotBeZero,
+            VoteValueTooHigh,
+            VoteValueCannotBeZero,
 
             InvalidBlockPeriod,
         }
@@ -309,7 +310,7 @@ pub mod pallet {
             //     origin: OriginFor<T>,
             //     bounded_name: BoundedVec<u8, T::NameStringLimit>,
             //     bounded_description: BoundedVec<u8, T::NameStringLimit>,
-            //     min_entry: BalanceOf<T>,
+            //     max_entry: BalanceOf<T>,
             //     start_block: T::BlockNumber,
             //     end_block: T::BlockNumber,
             //     category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
@@ -346,7 +347,7 @@ pub mod pallet {
             //     // create the festival & bind the owner & validated blocks to it
             //     let festival_id = Self::do_create_festival(
             //         who.clone(),
-            //         bounded_name, bounded_description, min_entry,
+            //         bounded_name, bounded_description, max_entry,
             //         category_tag_list.clone(), FestivalStatus::New
             //     )?;
             //     Self::do_bind_owners_to_festival(who.clone(), festival_id)?;
@@ -378,7 +379,7 @@ pub mod pallet {
                 origin: OriginFor<T>,
                 bounded_name: BoundedVec<u8, T::NameStringLimit>,
                 bounded_description: BoundedVec<u8, T::NameStringLimit>, 
-                min_entry: BalanceOf<T>,
+                max_entry: BalanceOf<T>,
                 category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> DispatchResult {
                 
@@ -388,8 +389,8 @@ pub mod pallet {
 				// 	Error::<T>::WalletStatsRegistryRequired,
 				// );
                 ensure!(
-                    min_entry > BalanceOf::<T>::from(0u32),
-                    Error::<T>::VoteAmountCannotBeZero,
+                    max_entry > BalanceOf::<T>::from(0u32),
+                    Error::<T>::VoteMaxAmountCannotBeZero,
                 );
                 
                 // validate category and tag
@@ -404,7 +405,7 @@ pub mod pallet {
                 // create the festival & bind the owner to it
                 let festival_id = Self::do_create_festival(
                     who.clone(),
-                    bounded_name, bounded_description, min_entry,
+                    bounded_name, bounded_description, max_entry,
                     category_tag_list.clone(), FestivalStatus::AwaitingActivation
                 )?;
                 Self::do_bind_owners_to_festival(who.clone(), festival_id)?;
@@ -691,11 +692,12 @@ pub mod pallet {
                 origin: OriginFor<T>,
                 festival_id: T::FestivalId,
                 movie_id : BoundedVec<u8, T::LinkStringLimit>,
+                vote_amount: BalanceOf<T>,
             )-> DispatchResult{
                 
                 let who = ensure_signed(origin)?;
 
-                Self::do_vote_for_movie_in_festival(&who,festival_id, movie_id.clone())?;
+                Self::do_vote_for_movie_in_festival(&who,festival_id, movie_id.clone(), vote_amount)?;
 
                 Self::deposit_event(Event::VotedForMovieInFestival(festival_id, movie_id, who.clone()));
                 Ok(())
@@ -779,7 +781,7 @@ pub mod pallet {
                         internal_movies: bounded_film_list.clone(),
                         external_movies: bounded_film_list,
                         status: status,
-                        min_entry: min_ticket_price,
+                        max_entry: min_ticket_price,
                         total_lockup: zero_lockup,
                         vote_list: bounded_vote_list,
                         categories_and_tags: category_tag_list,
@@ -1027,6 +1029,7 @@ pub mod pallet {
                     who: &T::AccountId,
                     festival_id: T::FestivalId,
                     movie_id : BoundedVec<u8, T::LinkStringLimit>,
+                    vote_amount : BalanceOf<T>,
                 )-> Result<(), DispatchError> {
                     
                     Festivals::<T>::try_mutate_exists(festival_id, |festival| -> DispatchResult {
@@ -1039,24 +1042,27 @@ pub mod pallet {
                         );
                         ensure!(fest.owner != who.clone(), Error::<T>::CannotVoteInOwnFestival);
                         ensure!(fest.status == FestivalStatus::Active, Error::<T>::FestivalNotActive);
+                        ensure!(vote_amount <= fest.max_entry, Error::<T>::VoteValueTooHigh);
+                        ensure!(vote_amount >  BalanceOf::<T>::from(0u32), Error::<T>::VoteValueCannotBeZero);
+                        
                         <T as pallet_stat_tracker::Config>::Currency::transfer(
                             who, &Self::account_id(),
-                            fest.min_entry, AllowDeath,
+                            fest.max_entry, AllowDeath,
                         );
                         pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
                             who.clone(), 
                             pallet_stat_tracker::FeatureType::Festival,
                             pallet_stat_tracker::TokenType::Locked,
-                            fest.min_entry.clone(), false
+                            vote_amount.clone(), false
                         )?;
                         
                         let vote = Vote {
                             voter: who.clone(),
                             vote_for: movie_id.clone(),
-                            amount: fest.min_entry,
+                            amount: vote_amount,
                         };
 
-                        fest.total_lockup = fest.total_lockup.checked_add(&fest.min_entry).ok_or(Error::<T>::Overflow)?;
+                        fest.total_lockup = fest.total_lockup.checked_add(&vote_amount).ok_or(Error::<T>::Overflow)?;
                         fest.vote_list.try_push(vote).unwrap();
 
                         Ok(())

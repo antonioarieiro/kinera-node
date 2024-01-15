@@ -8,6 +8,7 @@
 	//TODO-2 compare mint_into vs deposit_into_existing
 	//TODO-3 validate the inserted deadline when creating a ranking list
 	//TODO-4 improve the blocks_per_year calculation by creating a static variable in stat-tracker
+	//TODO-5 sort tied entries by total votes after sorting the winners
 
 
 #![cfg_attr(not(feature = "std"), no_std)]

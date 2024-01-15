@@ -19,6 +19,9 @@
 	//TODO-13 add ok_or to do_create_vote
 	//TODO-14 use arithmetic in do_calculate_vote_consensus
 	//TODO-15 use drain_filter (currently unstable) instead of retain
+	//TODO-16 to report content you need at least the minimum reputation to become a moderator
+	//TODO-17 add a direct reference to the content being reported in a report (ie. a movie_id of an innapropriate movie title in a festival)
+
 
 
 
@@ -309,7 +312,7 @@ pub mod pallet {
 			NonexistentModerator,
 			InvalidModeratorData,
 			ModeratorNotDraftedForReport,
-			NotEnoughModeratorsRegistered,
+			NotEnoughModeratorsAvailable,
 			
 			UserCannotAcceptVerdict,
 			
@@ -429,7 +432,8 @@ pub mod pallet {
 					reward_pool.0, false,
 				)?;
 
-				let drafted_moderators = Self::do_draft_moderators(who.clone(), reportee_id.clone())?;
+				let required_moderators = Self::do_calculate_moderators_in_tier(Tiers::TierOne)?;
+				let drafted_moderators = Self::do_draft_moderators(who.clone(), reportee_id.clone(), required_moderators)?;
 
 				Self::do_create_report(who, content_id, content_type, reportee_id, justification, category_tag_list.clone())?;
 				Self::do_create_report_verdict(content_id, content_type, Tiers::TierOne, reward_pool.1)?;
@@ -651,7 +655,8 @@ pub mod pallet {
 						)?;
 					}
 
-					let drafted_moderators = Self::do_draft_moderators(reporter_id, reportee_id)?;
+					let required_moderators = Self::do_calculate_moderators_in_tier(tier_data.1)?;
+					let drafted_moderators = Self::do_draft_moderators(reporter_id, reportee_id, required_moderators)?;
 					let reward_pool = Self::do_calculate_report_pool(T::TotalTierOneModerators::get())?;
 
 					Self::do_create_report_verdict(content_id, content_type, tier_data.1, reward_pool.1)?;
@@ -706,8 +711,8 @@ pub mod pallet {
 				pub fn do_draft_moderators(
 					reporter_id: T::AccountId,
 					reportee_id: T::AccountId,
+					required_moderators: u32,
 				) -> Result<Vec<T::AccountId>, DispatchError> { 
-					
 					
 					let mut moderator_data: Vec<T::AccountId> = 
 						Moderators::<T>::iter().map(|(x, _)| x).collect(); 
@@ -717,8 +722,10 @@ pub mod pallet {
 					//(x != reporter_id && x != reportee_id)
 					// majority_votes.retain(|vote| vote.is_for == VoteChoice::For); 
 					
-					let drafted_moderators = moderator_data.drain(0..3).collect();
-					// ensure!(moderator_data.len() >= T::TotalTierOneModerators::get() as usize, Error::<T>::NotEnoughModeratorsRegistered);
+					ensure!(moderator_data.len() as u32 >= required_moderators, Error::<T>::NotEnoughModeratorsAvailable);
+
+					let drafted_moderators = moderator_data.drain(0..required_moderators as usize).collect();
+					// ensure!(moderator_data.len() >= T::TotalTierOneModerators::get() as usize, Error::<T>::NotEnoughModeratorsAvailable);
 					// let btree = pallet_stat_tracker::Pallet::<T>::create_moderator_btree(drafted_moderators).unwrap();
 
 					Ok(drafted_moderators)
@@ -1250,7 +1257,7 @@ pub mod pallet {
 							reward, false,
 						)?;
 						
-						let new_reputation = pallet_stat_tracker::Pallet::<T>::do_update_wallet_reputation(
+						let new_reputation = pallet_stat_tracker::Pallet::<T>::do_calculate_reputation_change(
 							moderator_id.clone(), 
 							3u32, false,
 						)?;
@@ -1285,7 +1292,7 @@ pub mod pallet {
 								moderator_fee, true
 							)?;
 							
-							let new_reputation = pallet_stat_tracker::Pallet::<T>::do_update_wallet_reputation(
+							let new_reputation = pallet_stat_tracker::Pallet::<T>::do_calculate_reputation_change(
 								moderator_id.clone(), 
 								3u32, true,
 							)?;
@@ -1388,6 +1395,47 @@ pub mod pallet {
 					let collateral_balance = BalanceOf::<T>::from(T::MovieCollateral::get());
 					Ok(collateral_balance)
 				}
+
+
+				pub fn do_calculate_moderators_in_tier(
+					tier: Tiers,
+				) -> Result<u32, DispatchError> {
+					
+					 
+
+					let mut tier_index = match tier {
+						Tiers::TierOne => 1u32,
+						Tiers::TierTwo => 2u32,
+						Tiers::TierThree => 3u32,
+					};
+
+
+
+					let mut total_moderators = T::TotalTierOneModerators::get();
+					
+					while tier_index > 0u32 {
+						total_moderators = 
+							total_moderators
+							.saturating_mul(2u32);
+						
+						total_moderators = 
+							total_moderators
+							.checked_add(1u32)
+							.ok_or(Error::<T>::Overflow)?;
+							
+						tier_index =
+							tier_index
+							.checked_sub(1u32)
+							.ok_or(Error::<T>::Underflow)?;
+					}
+					
+					Ok(total_moderators)
+				}
+
+
+
+
+
 
 			//* Utils *//
 

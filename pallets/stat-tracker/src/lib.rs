@@ -11,7 +11,6 @@
 	//TODO-1 check the use of references in the helper functions that do not need to use .clone()
 	//TODO-2 implement the treasury from this pallet and migrate all other treasuries here
 	//TODO-3 implement claim all tokens
-	//TODO-4 add negative integer use case when slashing below 0 or creating a negative entry
 	//TODO-5 add a static lookup for values like blocks per year when calculating imbalances
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -407,28 +406,6 @@ pub mod pallet {
 	
 		impl<T:Config> Pallet<T> {
 					
-			pub fn create_moderator_btree(
-				moderators: Vec<T::AccountId>,
-			) -> Result<BTreeMap<T::AccountId, u32>, DispatchError> {
-				
-				let mut btree = BTreeMap::new();
-				
-				for moderator_id in moderators {
-					ensure!(
-						WalletStats::<T>::contains_key(moderator_id.clone()), 
-						Error::<T>::DraftedModeratorNotRegistered
-					);
-					let total_reputation = WalletTokens::<T>::try_get(&moderator_id).unwrap().reputation_moderation;
-					btree.insert(moderator_id, total_reputation);
-				}
-
-				Ok(btree)
-			}
-				
-
-
-
-
 			// True if the wallet is registered in the "WalletStats" storage.
 			// This always i mplies that an entry also exists e the 
 			// "WalletTokens" storage.
@@ -441,6 +418,8 @@ pub mod pallet {
 		
 
 
+			// Balance Changes
+			
 			// Used to abstract the "update_token" functions.
 			// This allows a single function to manage all 
 			// the different types of tokens.
@@ -540,46 +519,46 @@ pub mod pallet {
 					// dynamically select which token variable to update
 					match (feature_type, token_type) {
 						(FeatureType::Festival, TokenType::Locked) => wallet_tokens.locked_tokens_festival = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.locked_tokens_festival.clone(),
 								token_change,
 								is_slash,
 							)?,
 						(FeatureType::Festival, TokenType::Claimable) => wallet_tokens.claimable_tokens_festival = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.claimable_tokens_festival.clone(),
 								token_change, is_slash,
 							)?,
 	
 						(FeatureType::RankingList, TokenType::Locked) => wallet_tokens.locked_tokens_ranking = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.locked_tokens_ranking.clone(),
 								token_change, is_slash,
 							)?, 
 						(FeatureType::RankingList, TokenType::Claimable) => wallet_tokens.claimable_tokens_ranking = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.claimable_tokens_ranking.clone(),
 								token_change, is_slash,
 							)?,
 						
 						(FeatureType::Moderation, TokenType::Locked) => wallet_tokens.locked_tokens_moderation = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.locked_tokens_moderation.clone(),
 								token_change, is_slash,
 							)?,
 						(FeatureType::Moderation, TokenType::Claimable) => wallet_tokens.claimable_tokens_moderation = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.claimable_tokens_moderation.clone(),
 								token_change, is_slash,
 							)?,
 
 						(FeatureType::Movie, TokenType::Locked) => wallet_tokens.locked_tokens_movie = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.locked_tokens_movie.clone(),
 								token_change, is_slash,
 							)?,
 						(FeatureType::Movie, TokenType::Claimable) => wallet_tokens.claimable_tokens_movie = 
-							Self::do_calculate_token_value(
+							Self::do_calculate_token_change(
 								wallet_tokens.claimable_tokens_movie.clone(),
 								token_change, is_slash,
 							)?,
@@ -592,38 +571,10 @@ pub mod pallet {
 			}
 
 
-			pub fn do_calculate_token_value(
-				mut current_tokens: BalanceOf<T>,
-				token_change: BalanceOf<T>,
-				is_slash: bool,
-			) -> Result<BalanceOf::<T>, DispatchError>  {
-
-				// reset the locked tokens back to 0
-				// if token_change == BalanceOf::<T>::from(0u32) {
-				// 	current_tokens = BalanceOf::<T>::from(0u32);
-				// }
-				if is_slash {
-					current_tokens =
-						current_tokens.clone()
-						.checked_sub(&token_change)
-						.ok_or(Error::<T>::TokenUnderflow)?;
-				}
-				else {
-					current_tokens =
-						current_tokens.clone()
-						.checked_add(&token_change)
-						.ok_or(Error::<T>::TokenOverflow)?;
-				}
-
-				Ok(current_tokens)
-			}
 
 
 
-
-
-
-
+			// Imbalance Changes
 
 			// Takes an "imbalance" (a fraction of staked/total) and updates 
 			// it depending on the current imbalance.
@@ -660,7 +611,6 @@ pub mod pallet {
 			}
 
 
-
 			pub fn do_handle_imbalance_wallet_doesnt_exist(
 				who: T::AccountId,
 				feature_type: FeatureType,
@@ -689,7 +639,7 @@ pub mod pallet {
 				match feature_type {
 					FeatureType::RankingList => {
 						let (new_balance, new_imbalance) = 
-							Self::do_calculate_imbalance_value(
+							Self::do_calculate_imbalance_change(
 								BalanceOf::<T>::from(0u32),
 								new_earned,
 								total_earning_needed,
@@ -702,7 +652,7 @@ pub mod pallet {
 
 						// if new_balance > BalanceOf::<T>::from(0u32) {
 						// 	wallet_tokens.claimable_tokens_festival = 
-						// 		Self::do_calculate_token_value(
+						// 		Self::do_calculate_token_change(
 						// 			wallet_tokens.claimable_tokens_festival.clone(),
 						// 			token_change, is_slash,
 						// 		)?,
@@ -718,9 +668,6 @@ pub mod pallet {
 
 				Ok(())
 			}
-
-
-
 
 
 			// it depending on the current imbalance.
@@ -744,7 +691,7 @@ pub mod pallet {
 								wallet_tokens.imbalance_tokens_ranking;
 							
 							let (new_balance, new_imbalance) = 
-								Self::do_calculate_imbalance_value(
+								Self::do_calculate_imbalance_change(
 									current_earned,
 									new_earned,
 									total_earning_needed,
@@ -756,7 +703,7 @@ pub mod pallet {
 							if new_balance > BalanceOf::<T>::from(0u32) {
 								wallet_tokens.claimable_tokens_festival = 
 									// new_balance;
-									Self::do_calculate_token_value(
+									Self::do_calculate_token_change(
 										wallet_tokens.claimable_tokens_festival,
 										new_balance, is_slash,
 									)?;
@@ -776,11 +723,49 @@ pub mod pallet {
 
 
 
+			// Token & Value Calculators
+
+			// Calculates a new value for a Balance.
+			// If this is a slash, the value is subtracted to a minimum of 0.
+			// If not, the value is added to the total.
+			// The updated values are then returned.
+			pub fn do_calculate_token_change(
+				mut current_tokens: BalanceOf<T>,
+				token_change: BalanceOf<T>,
+				is_slash: bool,
+			) -> Result<BalanceOf::<T>, DispatchError>  {
+
+				// reset the locked tokens back to 0
+				// if token_change == BalanceOf::<T>::from(0u32) {
+				// 	current_tokens = BalanceOf::<T>::from(0u32);
+				// }
+				if is_slash {
+					if current_tokens > token_change {
+						current_tokens =
+							current_tokens
+							.checked_sub(&token_change)
+							.ok_or(Error::<T>::ReputationUnderflow)?;
+					}
+					else {
+						current_tokens = BalanceOf::<T>::from(0u32);
+					}
+				}
+				else {
+					current_tokens =
+						current_tokens.clone()
+						.checked_add(&token_change)
+						.ok_or(Error::<T>::TokenOverflow)?;
+				}
+
+				Ok(current_tokens)
+			}
+
+
 			// Takes an "imbalance" (a fraction of staked/total) and updates 
 			// it depending on the current imbalance.
 			// if the nominator is higher than the the denominator, the quoeficient
 			// as an integer is returned alongside the new imbalance.
-			pub fn do_calculate_imbalance_value(
+			pub fn do_calculate_imbalance_change(
 				mut current_earned: BalanceOf<T>,
 				new_earned: BalanceOf<T>,
 				total_earning_needed: BalanceOf<T>,
@@ -796,15 +781,18 @@ pub mod pallet {
 				// 	current_earned = BalanceOf::<T>::from(0u32);
 				// }
 				//TODO-4
-				// else if is_slash {
-				// 	current_imbalance =
-				// 		current_tokens.clone()
-				// 		.checked_sub(&token_change)
-				// 		.ok_or(Error::<T>::TokenUnderflow)?;
-				// }
-
-
-				if !is_slash {
+				if is_slash {
+					if current_earned > new_earned {
+						current_earned =
+							current_earned
+							.checked_sub(&new_earned)
+							.ok_or(Error::<T>::ReputationUnderflow)?;
+					}
+					else {
+						current_earned = BalanceOf::<T>::from(0u32);
+					}
+				}
+				else {
 					current_earned =
 						current_earned
 						.checked_add(&new_earned)
@@ -831,11 +819,11 @@ pub mod pallet {
 			}
 
 
-
-
-
-			// // apply either positive or negative value changes
-			pub fn do_update_wallet_reputation(
+			// Calculates a new value for a wallet's reputation.
+			// If this is a slash, the value is subtracted to a minimum of 0.
+			// If not, the value is added to the total.
+			// The updated values are then returned.
+			pub fn do_calculate_reputation_change(
 				who: T::AccountId,
 				new_reputation: u32,
 				is_slash: bool,
@@ -848,10 +836,15 @@ pub mod pallet {
 					let mut current_reputation = wallet_tokens.reputation_moderation;
 
 					if is_slash {
-						current_reputation =
-							current_reputation
-							.checked_sub(new_reputation)
-							.ok_or(Error::<T>::ReputationUnderflow)?;
+						if current_reputation > new_reputation {
+							current_reputation =
+								current_reputation
+								.checked_sub(new_reputation)
+								.ok_or(Error::<T>::ReputationUnderflow)?;
+						}
+						else {
+							current_reputation = 0u32;
+						}
 					}
 					else {
 						current_reputation =
