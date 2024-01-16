@@ -106,6 +106,8 @@ pub mod pallet {
 				type TotalTierOneModerators: Get<u32>;
 				type MaxReportsByTier: Get<u32>;
 			
+				type MinimumReputationForModeration: Get<u32>; 
+				type MinimumReputationForSeniorship: Get<u32>; 
 				type MinimumTokensForModeration: Get<BalanceOf<Self>>; 
 				type MovieCollateral: Get<BalanceOf<Self>>; 
 
@@ -323,7 +325,8 @@ pub mod pallet {
 
 			InsuficientBalance,
 			WalletStatsRegistryRequired,
-			NotEnoughBalance
+			NotEnoughBalance,
+			NotEnoughReputation,
 		}
 
 
@@ -354,7 +357,10 @@ pub mod pallet {
 					pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
 					Error::<T>::WalletStatsRegistryRequired,
 				);
-				
+				ensure!(
+					pallet_stat_tracker::WalletTokens::<T>::try_get(who.clone()).unwrap().reputation_moderation >= T::MinimumReputationForModeration::get(),
+					Error::<T>::NotEnoughReputation,
+				);
 				
 				Self::do_transfer_funds_to_treasury(who.clone(), T::MinimumTokensForModeration::get())?;
 				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
@@ -376,7 +382,11 @@ pub mod pallet {
 			) -> DispatchResult {
 				
 				let who = ensure_signed(origin)?;
-				Self::do_can_moderator_suspend(who.clone())?;
+				ensure!(
+					Self::do_can_moderator_suspend(who.clone())?,
+					Error::<T>::ReportsAwaitingVote
+				);
+				
 				Self::do_suspend_moderation(who.clone())?;
 
 				Self::deposit_event(Event::ModerationActivitySuspended(who));
@@ -527,7 +537,7 @@ pub mod pallet {
 						let majority_voter_reward = Self::do_calculate_majority_voter_reward(reward_pool, report_voters.0.len() as u32)?;
 						
 						Self::do_distribute_rewards_to_majority_voters(report_voters.0, majority_voter_reward)?;
-						Self::do_slash_tokens_from_minority_voters(report_voters.1)?;
+						Self::do_slash_minority_voters(report_voters.1)?;
 						
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
@@ -587,7 +597,7 @@ pub mod pallet {
 						let majority_voter_reward = Self::do_calculate_majority_voter_reward(reward_pool, report_voters.0.len() as u32)?;
 						
 						Self::do_distribute_rewards_to_majority_voters(report_voters.0, majority_voter_reward)?;
-						Self::do_slash_tokens_from_minority_voters(report_voters.1)?;
+						Self::do_slash_minority_voters(report_voters.1)?;
 						
 						if is_reporter {
 							let reportee_reward = Self::do_calculate_reportee_reward(reward_pool)?;
@@ -768,12 +778,15 @@ pub mod pallet {
 
 				pub fn do_can_moderator_suspend(
 					who: T::AccountId,
-				) -> Result<(), DispatchError> {
+				) -> Result<bool, DispatchError> {
 					
 					let moderator = Moderators::<T>::try_get(who).unwrap();
-					frame_support::ensure!(moderator.assigned_reports.len() == 0, Error::<T>::ReportsAwaitingVote);
+					let mut can_suspend = true;
+					if moderator.assigned_reports.len() == 0 {
+						can_suspend = false;
+					}
 
-					Ok(())
+					Ok(can_suspend)
 				} 
 				
 
@@ -1262,7 +1275,7 @@ pub mod pallet {
 							3u32, false,
 						)?;
 						
-						if new_reputation > 14  {
+						if new_reputation >= T::MinimumReputationForSeniorship::get()  {
 							Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
 								let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
 								moderator_data.rank = ModeratorRank::Senior;
@@ -1277,14 +1290,18 @@ pub mod pallet {
 				}
 
 
-				pub fn do_slash_tokens_from_minority_voters(
+				pub fn do_slash_minority_voters(
 					minority_voters: Vec<T::AccountId>,
 				) -> Result<(), DispatchError> {	
 					let moderator_fee: BalanceOf<T> = Self::do_calculate_moderator_fee()?;
+
 					for moderator_id in minority_voters.iter() {
-						Moderators::<T>::try_mutate_exists(moderator_id, |moderator_data| -> DispatchResult {
-							let moderator  = moderator_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-							
+						
+						let suspend_data = Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| 
+						-> Result<(bool, BoundedVec<T::ContentId, T::MaxReportsByModerator>), DispatchError> {
+							let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
+							let mut should_remove = false;
+
 							pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
 								moderator_id.clone(), 
 								pallet_stat_tracker::FeatureType::Moderation,
@@ -1297,17 +1314,28 @@ pub mod pallet {
 								3u32, true,
 							)?;
 							
-							if new_reputation < 15  {
-								Moderators::<T>::try_mutate_exists(moderator_id, |mod_data| -> DispatchResult {
-									let moderator_data = mod_data.as_mut().ok_or(Error::<T>::NonexistentModerator)?;
-									moderator_data.rank = ModeratorRank::Junior;
-		
-									Ok(())
-								})?;
+							// suspend moderation
+							if new_reputation < T::MinimumReputationForModeration::get() {
+								should_remove = true;
+							}
+							// demote to junior if senior
+							else if new_reputation < T::MinimumReputationForSeniorship::get() 
+							&& moderator_data.rank == ModeratorRank::Senior {
+								moderator_data.rank = ModeratorRank::Junior;
 							}
 
-							Ok(())
+							Ok((should_remove, moderator_data.assigned_reports.clone()))
 						})?;
+
+						if suspend_data.0 { // should_suspend
+							for report_id in suspend_data.1 {
+								//TODO reallocate all the pending reports, 
+							}
+							
+							Self::do_suspend_moderation(moderator_id.clone())?;
+						}
+
+
 					}
 					Ok(())
 				}

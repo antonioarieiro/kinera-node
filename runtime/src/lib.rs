@@ -1029,6 +1029,8 @@ parameter_types! {
 	pub const MaxReportsByModerator: u32 = 3;
 	pub const TotalTierOneModerators: u32 = 3;
 	pub const MaxReportsByTier: u32 = 23;
+	pub const MinimumReputationForSeniorship: u32 = 30;
+	pub const MinimumReputationForModeration: u32 = 10;
 	pub const MinimumTokensForModeration: u32 = 10000;
 	pub const PalletModerationId: PalletId = PalletId(*b"ModStash");
 }
