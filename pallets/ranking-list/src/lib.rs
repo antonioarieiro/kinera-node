@@ -86,7 +86,6 @@ pub mod pallet {
 				type MaxListsPerBlock: Get<u32>;
 				type MaxVotersPerList: Get<u32>;
 				type MaxMoviesInList: Get<u32>;
-				type MinVoteAmount: Get<u32>;
 
 				// the minimum amount of blocks between a ranking list's refresh period
 				type MinimumListDuration: Get<u32>;
@@ -139,7 +138,7 @@ pub mod pallet {
 		//* Structs *//
 
 			#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug,TypeInfo, MaxEncodedLen)]
-			pub struct RankingList<BoundedString, RankingListStatus, BlockNumber, MovieList, VoteMap, CategoryTagList> {
+			pub struct RankingList<BoundedString, RankingListStatus, BlockNumber, MovieList, VoteMap, Balance, CategoryTagList> {
 				pub name: BoundedString,
 				pub description: BoundedString,
 				pub status: RankingListStatus,
@@ -147,6 +146,7 @@ pub mod pallet {
 				pub list_deadline: BlockNumber,
 				pub movies_in_list: MovieList, // this becomes a sorted winner list after the "list_deadline" block
 				pub votes_by_user: VoteMap,
+				pub total_lockup: Balance,
 				pub categories_and_tags: CategoryTagList,
 			}
 
@@ -173,14 +173,6 @@ pub mod pallet {
 				pub user_vote_list: RankingListId,
 			}
 
-		// 	name: BoundedString,
-		// 	pub description: BoundedString,
-		// 	pub status: RankingListStatus,
-		// 	pub list_duration: BlockNumber,
-		// 	pub list_deadline: BlockNumber,
-		// 	pub movies_in_list: MovieList, // this becomes a sorted winner list after the "list_deadline" block
-		// 	pub votes_by_user: VoteMap,
-		// 	pub categories_and_tags: CategoryTagList,
 
 	
     //** Genesis **//
@@ -241,6 +233,7 @@ pub mod pallet {
 						T::MaxVotersPerList,
 					> 
 				= BoundedBTreeMap::new();
+				let total_lockup = BalanceOf::<T>::from(0u32);
 
 				let ranking_list = RankingList {
 					name: name.clone(),
@@ -250,6 +243,7 @@ pub mod pallet {
 					list_duration: duration.clone(),
 					movies_in_list: movies_in_list.clone(),
 					votes_by_user: votes_by_user.clone(),
+					total_lockup: total_lockup.clone(),
 					categories_and_tags: categories_and_tags.clone(),
 				};
 				<RankingLists<T>>::insert(ranking_list_id.clone(), ranking_list.clone());
@@ -286,12 +280,13 @@ pub mod pallet {
 				BoundedVec<u8, T::RankingStringLimit>,
 				RankingListStatus,
 				T::BlockNumber,
-				BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>,
+				BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInList>, //Movies in List
 				BoundedBTreeMap<
 					T::AccountId, 
 					BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>, 
 					T::MaxVotersPerList
 				>,
+				BalanceOf<T>,
 				BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
 			>
 		>;
@@ -338,7 +333,8 @@ pub mod pallet {
 			InvalidVote,
 			RankingListNotFound,
 			MovieNotInRankingList,
-			VoteAmountTooLow,
+			VoteAmountCannotBeZero,
+			VoteAmountTooLowForNoConviction,
 			ListDurationTooShort,
 			WalletStatsRegistryRequired,
 		}
@@ -420,7 +416,7 @@ pub mod pallet {
 					BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList>,
 					T::MaxVotersPerList> 
 				= BoundedBTreeMap::new();
-				
+				let total_lockup = BalanceOf::<T>::from(0u32);
 
 				// create ranking list struct & insert into storage
 				let ranking_list = RankingList {
@@ -431,6 +427,7 @@ pub mod pallet {
 					list_duration: list_duration,
 					movies_in_list: movies_in_list,
 					votes_by_user: votes_by_user,
+					total_lockup: total_lockup,
 					categories_and_tags: category_tag_list.clone(),
 				};
 				RankingLists::<T>::insert(ranking_list_id.clone(), ranking_list);
@@ -459,9 +456,15 @@ pub mod pallet {
 				origin: OriginFor<T>,
 				list_id: RankingListId,
 				movie_id: BoundedVec<u8, T::LinkStringLimit>,
+				amount: BalanceOf<T>,
+				conviction: Conviction,
 			) -> DispatchResult {
 
 				let who = ensure_signed(origin)?;
+				ensure!(amount > BalanceOf::<T>::from(0u32), Error::<T>::VoteAmountCannotBeZero);
+				if conviction == Conviction::None {
+					ensure!(amount >= BalanceOf::<T>::from(10u32), Error::<T>::VoteAmountTooLowForNoConviction);
+				}
 				
 				// ensure movie exists
 				pallet_movie::Pallet::<T>::do_ensure_internal_movie_exist(movie_id.clone())?;
@@ -473,6 +476,41 @@ pub mod pallet {
 					// ensure no entry for the movie exists in the ranking list
 					ensure!(!list.movies_in_list.contains(&movie_id.clone()), Error::<T>::MovieAlreadyInList);
 
+					// transfer amount to this pallet's vault
+					T::Currency::transfer(
+						&who.clone(),
+						&Self::account_id(), 
+						amount.clone(), 
+						AllowDeath
+					);
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						who.clone(), 
+						pallet_stat_tracker::FeatureType::RankingList,
+						pallet_stat_tracker::TokenType::Locked,
+						amount.clone(), false
+					)?;
+					list.total_lockup =
+						list.total_lockup
+						.checked_add(&amount.clone())
+						.ok_or(Error::<T>::Overflow)?;
+
+					// create the Vote
+					let vote = RankingVote {
+						movie_id: movie_id.clone(),
+						locked_amount: amount,
+						conviction: conviction,
+					};
+
+					// retrieve the votes for the ranking list
+					let mut votes = list.votes_by_user.get_mut(&who.clone());
+	
+					// create a new vote list, with the user's vote in it and add it
+					let mut user_votes: BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList> =
+						TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata)?;
+					
+					user_votes.try_push(vote).unwrap();
+					
+					list.votes_by_user.try_insert(who.clone(), user_votes).unwrap();
 					list.movies_in_list.try_push(movie_id.clone()).unwrap();
 					Ok(())
 				})?;
@@ -490,9 +528,15 @@ pub mod pallet {
 				source: pallet_movie::ExternalSource,
 				movie_link: BoundedVec<u8, T::LinkStringLimit>,
 				category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
+				amount: BalanceOf<T>,
+				conviction: Conviction,
 			) -> DispatchResult {
 
 				let who = ensure_signed(origin)?;
+				ensure!(amount > BalanceOf::<T>::from(0u32), Error::<T>::VoteAmountCannotBeZero);
+				if conviction == Conviction::None {
+					ensure!(amount >= BalanceOf::<T>::from(10u32), Error::<T>::VoteAmountTooLowForNoConviction);
+				}
 				
 				// ensure movie exists
 				let does_movie_exist = pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_link.clone())?;
@@ -512,7 +556,43 @@ pub mod pallet {
 					// ensure no entry for the movie exists in the ranking list
 					ensure!(!list.movies_in_list.contains(&movie_link.clone()), Error::<T>::MovieAlreadyInList);
 
+					// transfer amount to this pallet's vault
+					T::Currency::transfer(
+						&who.clone(),
+						&Self::account_id(), 
+						amount.clone(), 
+						AllowDeath
+					);
+					pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+						who.clone(), 
+						pallet_stat_tracker::FeatureType::RankingList,
+						pallet_stat_tracker::TokenType::Locked,
+						amount.clone(), false
+					)?;
+					list.total_lockup =
+						list.total_lockup
+						.checked_add(&amount.clone())
+						.ok_or(Error::<T>::Overflow)?;
+
+					// create the Vote
+					let vote = RankingVote {
+						movie_id: movie_link.clone(),
+						locked_amount: amount,
+						conviction: conviction,
+					};
+
+					// retrieve the votes for the ranking list
+					let mut votes = list.votes_by_user.get_mut(&who.clone());
+	
+					// create a new vote list, with the user's vote in it and add it
+					let mut user_votes: BoundedVec<RankingVote<BoundedVec<u8, T::LinkStringLimit>, BalanceOf<T>>, T::MaxVotersPerList> =
+						TryInto::try_into(Vec::new()).map_err(|_| Error::<T>::BadMetadata)?;
+					
+					user_votes.try_push(vote).unwrap();
+					
+					list.votes_by_user.try_insert(who.clone(), user_votes).unwrap();
 					list.movies_in_list.try_push(movie_link.clone()).unwrap();
+				
 					Ok(())
 				})?;
 				
@@ -536,7 +616,10 @@ pub mod pallet {
 
 				// ensure ranking list id exists
 				ensure!(RankingLists::<T>::contains_key(list_id.clone()), Error::<T>::RankingListNotFound);
-				ensure!(amount >= BalanceOf::<T>::from(T::MinVoteAmount::get()), Error::<T>::VoteAmountTooLow);
+				ensure!(amount > BalanceOf::<T>::from(0u32), Error::<T>::VoteAmountCannotBeZero);
+				if conviction == Conviction::None {
+					ensure!(amount >= BalanceOf::<T>::from(10u32), Error::<T>::VoteAmountTooLowForNoConviction);
+				}
 				
 				//mutate the storage, while creating the Vote & bonding
 				RankingLists::<T>::try_mutate_exists(list_id, |ranking_list| -> DispatchResult {
@@ -558,6 +641,10 @@ pub mod pallet {
 						pallet_stat_tracker::TokenType::Locked,
 						amount.clone(), false
 					)?;
+					list.total_lockup =
+						list.total_lockup
+						.checked_add(&amount.clone())
+						.ok_or(Error::<T>::Overflow)?;
 
 					// create the Vote
 					let vote = RankingVote {

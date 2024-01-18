@@ -1045,6 +1045,8 @@ impl pallet_moderation::Config for Runtime{
 	type TotalTierOneModerators = TotalTierOneModerators;
 	type MaxReportsByTier = MaxReportsByTier;
 	
+	type MinimumReputationForSeniorship = MinimumReputationForSeniorship;
+	type MinimumReputationForModeration = MinimumReputationForModeration;
 	type MinimumTokensForModeration = MinimumTokensForModeration;
 	type MovieCollateral = MovieCollateral;
 
@@ -1080,7 +1082,6 @@ parameter_types!{
 	pub const RankingStringLimit: u32 = 50;
 	pub const MaxMoviesInList: u32 = 100000;
 	pub const MinimumListDuration: u32 = 3600; // six hours in blocks
-	pub const MinVoteAmount: u32 = 10000; // six hours in blocks
 	pub const MaxVotersPerList: u32 = 10000000;
 	pub const MaxListsPerBlock: u32 = 50;
 }
@@ -1092,7 +1093,6 @@ impl pallet_ranking_list::Config for Runtime {
 	type MaxVotersPerList = MaxVotersPerList;
 	type MaxMoviesInList = MaxMoviesInList;
 	type MinimumListDuration = MinimumListDuration;
-	type MinVoteAmount = MinVoteAmount;
     type RankingStringLimit = RankingStringLimit;
     type PalletId = PalletRankingListId;
 }

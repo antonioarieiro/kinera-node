@@ -440,7 +440,11 @@ pub mod pallet {
             )-> DispatchResult{
                 
                 let who = ensure_signed(origin)?;
-                
+                ensure!(
+                    pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+                    Error::<T>::WalletStatsRegistryRequired,
+                );
+
                 // mutate the festival from storage
                 Festivals::<T>::try_mutate_exists( festival_id.clone(),|fes| -> DispatchResult{
                     let festival = fes.as_mut().ok_or(Error::<T>::BadMetadata)?;

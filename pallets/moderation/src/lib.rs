@@ -358,7 +358,8 @@ pub mod pallet {
 					Error::<T>::WalletStatsRegistryRequired,
 				);
 				ensure!(
-					pallet_stat_tracker::WalletTokens::<T>::try_get(who.clone()).unwrap().reputation_moderation >= T::MinimumReputationForModeration::get(),
+					pallet_stat_tracker::WalletTokens::<T>::try_get(who.clone()).unwrap().reputation_moderation 
+					>= T::MinimumReputationForModeration::get(),
 					Error::<T>::NotEnoughReputation,
 				);
 				
@@ -422,6 +423,11 @@ pub mod pallet {
 				ensure!(
 					pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
 					Error::<T>::WalletStatsRegistryRequired,
+				);
+				ensure!(
+					pallet_stat_tracker::WalletTokens::<T>::try_get(who.clone()).unwrap().reputation_moderation 
+					>= T::MinimumReputationForModeration::get(),
+					Error::<T>::NotEnoughReputation,
 				);
 
 				// validate category and tag
