@@ -376,6 +376,38 @@ pub mod pallet {
 				Ok(())
 			}	
 
+			
+
+			#[pallet::weight(10_000)]
+			pub fn update_reputation_senior(
+				origin: OriginFor<T>,
+			) -> DispatchResult {
+				
+				let who = ensure_signed(origin)?;
+				Self::do_check_if_already_moderator(who.clone())?;
+				ensure!(
+					pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
+					Error::<T>::WalletStatsRegistryRequired,
+				);
+				ensure!(
+					pallet_stat_tracker::WalletTokens::<T>::try_get(who.clone()).unwrap().reputation_moderation 
+					>= T::MinimumReputationForModeration::get(),
+					Error::<T>::NotEnoughReputation,
+				);
+				
+				Self::do_transfer_funds_to_treasury(who.clone(), T::MinimumTokensForModeration::get())?;
+				pallet_stat_tracker::Pallet::<T>::do_update_wallet_tokens(
+					who.clone(), 
+					pallet_stat_tracker::FeatureType::Moderation,
+					pallet_stat_tracker::TokenType::Locked,
+					T::MinimumTokensForModeration::get(), false
+				)?;
+				Self::do_create_moderator(who.clone())?;
+				
+				Self::deposit_event(Event::ModeratorRegistered(who));
+				Ok(())
+			}	
+
 
 			#[pallet::weight(10_000)]
 			pub fn suspend_moderation_activity(

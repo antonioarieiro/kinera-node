@@ -380,19 +380,32 @@ pub mod pallet {
                 bounded_name: BoundedVec<u8, T::NameStringLimit>,
                 bounded_description: BoundedVec<u8, T::NameStringLimit>, 
                 max_entry: BalanceOf<T>,
+                internal_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
+                external_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
                 category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
             ) -> DispatchResult {
                 
                 let who = ensure_signed(origin)?;
-				// ensure!(
-				// 	pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
-				// 	Error::<T>::WalletStatsRegistryRequired,
-				// );
                 ensure!(
                     max_entry > BalanceOf::<T>::from(0u32),
                     Error::<T>::VoteMaxAmountCannotBeZero,
                 );
-                
+
+                //TODO-7
+                // for movie_id in internal_movie_ids.clone() {
+                //     ensure!(
+                //         pallet_movie::Pallet::<T>::do_does_internal_movie_exist(movie_id.clone())?,
+                //         Error::<T>::NonexistentMovie,
+                //     );
+                // }
+
+                // for movie_id in external_movie_ids.clone() {
+                //     ensure!(
+                //         pallet_movie::Pallet::<T>::do_does_external_movie_exist(movie_id.clone())?,
+                //         Error::<T>::NonexistentMovie,
+                //     );
+                // }
+
                 // validate category and tag
                 let category_type: pallet_tags::CategoryType<T>
                     = TryInto::try_into("Festival".as_bytes().to_vec())
@@ -406,6 +419,7 @@ pub mod pallet {
                 let festival_id = Self::do_create_festival(
                     who.clone(),
                     bounded_name, bounded_description, max_entry,
+                    internal_movie_ids, external_movie_ids,
                     category_tag_list.clone(), FestivalStatus::AwaitingActivation
                 )?;
                 Self::do_bind_owners_to_festival(who.clone(), festival_id)?;
@@ -440,10 +454,6 @@ pub mod pallet {
             )-> DispatchResult{
                 
                 let who = ensure_signed(origin)?;
-                ensure!(
-                    pallet_stat_tracker::Pallet::<T>::is_wallet_registered(who.clone())?,
-                    Error::<T>::WalletStatsRegistryRequired,
-                );
 
                 // mutate the festival from storage
                 Festivals::<T>::try_mutate_exists( festival_id.clone(),|fes| -> DispatchResult{
@@ -508,9 +518,8 @@ pub mod pallet {
 
 
             // Activate a festival with status "AwaitingActivation" if you are its owner. Festivals
-            // are considered private before their activation. After activating the z
-            //  block is supplied, and the start block is automatically set to the minumum "FestBlockSafetyMargin"
-            // The start block must be at least FestBlockSafetyMargin blocks away from the current block.
+            // are considered private before their activation. After activating ASAP, the festival starts right away,
+            // so only an end block needs to be supplied.
             #[pallet::weight(10_000)]
             pub fn activate_festival_asap(
                 origin: OriginFor<T>,
@@ -541,12 +550,9 @@ pub mod pallet {
                     );
 
                     // ensure the block periods are valid
-                    let safe_start_time = 
-                        frame_system::Pallet::<T>::block_number()
-                        .checked_add(&T::BlockNumber::from(T::FestBlockSafetyMargin::get()))
-                        .ok_or(Error::<T>::InvalidBlockPeriod)?;
+                    let now = frame_system::Pallet::<T>::block_number();
                     ensure!(
-                        end_block-safe_start_time >= T::BlockNumber::from(T::MinFesBlockDuration::get()), 
+                        end_block - now >= T::BlockNumber::from(T::MinFesBlockDuration::get()), 
                         Error::<T>::FestivalPeriodTooShort
                     );
 
@@ -560,15 +566,14 @@ pub mod pallet {
                             fes_id != &festival_id.clone()
                                 
                         );
-                        wallet_data.awaiting_start_festivals.try_push(festival_id).unwrap();
+                        wallet_data.active_festivals.try_push(festival_id).unwrap();
                         
                         Ok(())
                     })?;
 
                     //bind the duration to the festival
-                    Self::do_bind_duration_to_festival(festival_id, safe_start_time, end_block)?;
-                    festival.status = FestivalStatus::AwaitingStartBlock;
-                
+                    festival.status = FestivalStatus::Active;
+
                     Self::deposit_event(Event::FestivalActivated(festival_id, who));
                     Ok(())
                 })?;
@@ -755,6 +760,8 @@ pub mod pallet {
                     name: BoundedVec<u8, T::NameStringLimit>,
                     description: BoundedVec<u8, T::NameStringLimit>,
                     min_ticket_price: BalanceOf<T>,
+                    internal_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
+                    external_movie_ids: BoundedVec<BoundedVec<u8, T::LinkStringLimit>, T::MaxMoviesInFest>,
                     category_tag_list: BoundedVec<(CategoryId<T>, TagId<T>), T::MaxTags>,
                     status: FestivalStatus,
                 ) -> Result<T::FestivalId, DispatchError> {
@@ -777,7 +784,7 @@ pub mod pallet {
                     
                     let zero_lockup = BalanceOf::<T>::from(0u32);
                     
-                    let festival = Festival {
+                    let mut festival = Festival {
                         id: festival_id.clone(),
                         owner: who,
                         name: name,
@@ -790,6 +797,16 @@ pub mod pallet {
                         vote_list: bounded_vote_list,
                         categories_and_tags: category_tag_list,
                     };
+
+                    // add the movies to the festival
+                    for internal_movie in internal_movie_ids {
+                        festival.internal_movies.try_push(internal_movie);
+                    }
+
+                    // add the movies to the festival
+                    for external_movie in external_movie_ids {
+                        festival.external_movies.try_push(external_movie);
+                    }
 
                     Festivals::<T>::insert(festival_id, festival);
                     
