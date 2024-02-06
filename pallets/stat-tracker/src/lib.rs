@@ -12,6 +12,7 @@
 	//TODO-2 implement the treasury from this pallet and migrate all other treasuries here
 	//TODO-3 implement claim all tokens
 	//TODO-5 add a static lookup for values like blocks per year when calculating imbalances
+	//TODO-6 optimize self::account_id, store the value during genesis because calculating it is expensive
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -35,10 +36,15 @@ pub mod pallet {
 		//* Imports *//
 			
 			use frame_support::{
+				dispatch::DispatchResultWithPostInfo,
 				pallet_prelude::*,
+				PalletId,
 				traits::{
 					Currency,
 					ReservableCurrency,
+					ExistenceRequirement::{
+						AllowDeath,
+					},
 				},
 				sp_runtime::{
 					traits::{
@@ -46,6 +52,7 @@ pub mod pallet {
 						CheckedSub,
 						CheckedDiv,
 						Saturating,
+						AccountIdConversion,
 					},
 				}
 			};
@@ -60,17 +67,17 @@ pub mod pallet {
 		//* Config *//
 
 			#[pallet::pallet]
-
-			#[pallet::generate_store(pub(super) trait Store)]
 			pub struct Pallet<T>(_);
 
 			#[pallet::config]
 			pub trait Config: frame_system::Config {
-				type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+				type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 				type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 
 				type DefaultReputation: Get<u32>;
 				type NameStringLimit: Get<u32>;
+				
+				type PalletId: Get<PalletId>;
 			}
 
 
@@ -208,6 +215,7 @@ pub mod pallet {
 			ReputationOverflow,
 			TokenUnderflow,
 			ReputationUnderflow,
+			NotEnoughBalance,
 		}
 
 
@@ -227,13 +235,14 @@ pub mod pallet {
 
 			// Register a new wallet if previously unregistered.
 			// This is required by many features in the app.
-			#[pallet::weight(10_000)]
+			#[pallet::call_index(0)]
+			#[pallet::weight(Weight::from_parts(10_000, 0) + T::DbWeight::get().reads_writes(1,1))]
 			pub fn register_new_wallet(
 				origin: OriginFor<T>,
 				is_name_public: bool,
 				is_wallet_public: bool,
 				name: BoundedVec<u8, T::NameStringLimit>,
-			) -> DispatchResult {
+			) -> DispatchResultWithPostInfo {
 				
 				let who = ensure_signed(origin)?;
 				ensure!(
@@ -273,18 +282,19 @@ pub mod pallet {
 					Self::deposit_event(Event::AccountRegisteredName(name));   
 				};   
 
-				Ok(())
+				Ok(().into())
 			}
 
 
 			// Unregister a wallet, automatically claiming any leftover tokens.
 			//TODO-2
 			//TODO-3
-			#[pallet::weight(10_000)]
+			#[pallet::call_index(1)]
+			#[pallet::weight(Weight::from_parts(10_000, 0) + T::DbWeight::get().reads_writes(1,1))]
 			pub fn unregister_wallet(
 				origin: OriginFor<T>,
 				name: BoundedVec<u8, T::NameStringLimit>,
-			) -> DispatchResult {
+			) -> DispatchResultWithPostInfo {
 				
 				let who = ensure_signed(origin)?;
 
@@ -300,7 +310,7 @@ pub mod pallet {
 					Self::deposit_event(Event::AccountUnregisteredName(name));   
 				}
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -308,13 +318,14 @@ pub mod pallet {
 
 			// Update all the privacy settings. This is done all at once, in order to
 			// save on otherwise multiple gas fees. 
-			#[pallet::weight(10_000)]
+			#[pallet::call_index(2)]
+			#[pallet::weight(Weight::from_parts(10_000, 0) + T::DbWeight::get().reads_writes(1,1))]
 			pub fn update_wallet_data(
 				origin: OriginFor<T>,
 				is_name_public: bool,
 				is_wallet_public: bool,
 				name: BoundedVec<u8, T::NameStringLimit>,
-			) -> DispatchResult {
+			) -> DispatchResultWithPostInfo {
 				
 				let who = ensure_signed(origin)?;
 				ensure!(
@@ -341,62 +352,65 @@ pub mod pallet {
 					Self::deposit_event(Event::AccountDataUpdatedName(name));   
 				}
 
-				Ok(())
+				Ok(().into())
 			}
 
 
 
-			//TODO-3
-			// #[pallet::weight(10_000)]
-			// pub fn claim_all_tokens(
-			// 	origin: OriginFor<T>,
-			// ) -> DispatchResult {
+			// TODO-3
+			#[pallet::call_index(3)]
+			#[pallet::weight(Weight::from_parts(10_000, 0) + T::DbWeight::get().reads_writes(1,1))]
+			pub fn claim_all_tokens(
+				origin: OriginFor<T>,
+			) -> DispatchResultWithPostInfo {
 				
-			// 	let who = ensure_signed(origin)?;
+				let who = ensure_signed(origin)?;
 
-			// 	WalletTokens::<T>::try_mutate_exists(who.clone(), |wallet_tokens| -> DispatchResult {
-			// 		let tokens = wallet_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
+				WalletTokens::<T>::try_mutate_exists(who.clone(), |wallet_tokens| -> DispatchResult {
+					let tokens = wallet_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
 
-			// 		let zero_balance = BalanceOf::<T>::from(0u32);
+					let zero_balance = BalanceOf::<T>::from(0u32);
 					
-			// 		// add all the claimable tokens into the same var
-			// 		let mut total_tokens = 
-			// 			zero_balance.clone()
-			// 			.checked_add(tokens.claimable_tokens_moderation)
-			// 			.ok_or(Error::<T>::TokenOverflow)?;
-			// 		total_tokens = 
-			// 			total_tokens
-			// 			.checked_add(tokens.claimable_tokens_festival)
-			// 			.ok_or(Error::<T>::TokenOverflow)?;
-			// 		total_tokens = 
-			// 			total_tokens
-			// 			.checked_add(tokens.claimable_tokens_ranking)
-			// 			.ok_or(Error::<T>::TokenOverflow)?;
-
-			// 		// ensure the transfer works
-			// 		ensure!(
-			// 			T::Currency::transfer(
-			// 				&Self::account_id(), 
-			// 				&who.clone(),
-			// 				total_tokens.clone(), 
-			// 				AllowDeath
-			// 			) == Ok(()),
-			// 			Error::<T>::NotEnoughBalance
-			// 		);
-
-			// 		// reset the total claimable tokens 
-			// 		tokens.claimable_tokens_moderation = zero_balance.clone();
-			// 		tokens.claimable_tokens_festival = zero_balance.clone();
-			// 		tokens.claimable_tokens_ranking = zero_balance;
-
-			// 		Self::deposit_event(Event::TokensClaimed(who));   
-			// 		Ok(())
-			// 	})?;
+					// add all the claimable tokens into the same var
+					let mut total_tokens = 
+						zero_balance.clone()
+						.checked_add(&tokens.claimable_tokens_moderation)
+						.ok_or(Error::<T>::TokenOverflow)?;
+					total_tokens = 
+						total_tokens
+						.checked_add(&tokens.claimable_tokens_festival)
+						.ok_or(Error::<T>::TokenOverflow)?;
+					total_tokens = 
+						total_tokens
+						.checked_add(&tokens.claimable_tokens_ranking)
+						.ok_or(Error::<T>::TokenOverflow)?;
 
 
 
-			// 	Ok(())
-			// }
+					// ensure the transfer works
+					ensure!(
+						T::Currency::transfer(
+							&Self::account_id(),
+							&who.clone(),
+							total_tokens.clone(), 
+							AllowDeath
+						) == Ok(()),
+						Error::<T>::NotEnoughBalance
+					);
+
+					// reset the total claimable tokens 
+					tokens.claimable_tokens_moderation = zero_balance.clone();
+					tokens.claimable_tokens_festival = zero_balance.clone();
+					tokens.claimable_tokens_ranking = zero_balance;
+
+					Self::deposit_event(Event::TokensClaimed(who));   
+					Ok(().into())
+				})?;
+
+
+
+				Ok(().into())
+			}
 
 		}
 	
@@ -406,17 +420,6 @@ pub mod pallet {
 	
 		impl<T:Config> Pallet<T> {
 					
-			// True if the wallet is registered in the "WalletStats" storage.
-			// This always i mplies that an entry also exists e the 
-			// "WalletTokens" storage.
-			pub fn is_wallet_registered(
-				who: T::AccountId,
-			) -> Result<bool, DispatchError> {
-
-				Ok(WalletStats::<T>::contains_key(who))
-			}
-		
-
 
 			// Balance Changes
 			
@@ -429,7 +432,7 @@ pub mod pallet {
 				token_type: TokenType,
 				token_change: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult {
+			) -> DispatchResultWithPostInfo {
 				
 				// this is the first instance where the wallet's tokens are updated
 				if !WalletTokens::<T>::contains_key(who.clone()) {
@@ -449,7 +452,7 @@ pub mod pallet {
 					)?;
 				}
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -459,7 +462,7 @@ pub mod pallet {
 				feature_type: FeatureType,
 				token_type: TokenType,
 				token_change: BalanceOf<T>,
-			) -> DispatchResult  {
+			) -> DispatchResultWithPostInfo  {
 
 				let zero_balance = BalanceOf::<T>::from(0u32);
 				let mut wallet_tokens = Tokens {
@@ -500,7 +503,7 @@ pub mod pallet {
 
 				WalletTokens::<T>::insert(who.clone(), wallet_tokens.clone());
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -511,7 +514,7 @@ pub mod pallet {
 				token_type: TokenType,
 				token_change: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult  {
+			) -> DispatchResultWithPostInfo  {
 
 				WalletTokens::<T>::try_mutate(who, |wal_tokens| -> DispatchResult {
 					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
@@ -564,10 +567,10 @@ pub mod pallet {
 							)?,
 					};
 
-					Ok(())
+					Ok(().into())
 				})?;
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -586,7 +589,7 @@ pub mod pallet {
 				new_earned: BalanceOf<T>,
 				total_earning_needed: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult  {
+			) -> DispatchResultWithPostInfo  {
 
 				// this is the first instance where the wallet's tokens are updated
 				if !WalletTokens::<T>::contains_key(who.clone()) {
@@ -607,7 +610,7 @@ pub mod pallet {
 					)?;
 				}
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -617,7 +620,7 @@ pub mod pallet {
 				new_earned: BalanceOf<T>,
 				total_earning_needed: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult  {
+			) -> DispatchResultWithPostInfo  {
 
 				let zero_balance = BalanceOf::<T>::from(0u32);
 				let mut wallet_tokens = Tokens {
@@ -664,9 +667,7 @@ pub mod pallet {
 
 				//TODO-4 
 
-				
-
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -679,7 +680,7 @@ pub mod pallet {
 				new_earned: BalanceOf<T>,
 				total_earning_needed: BalanceOf<T>,
 				is_slash: bool,
-			) -> DispatchResult  {
+			) -> DispatchResultWithPostInfo  {
 
 				WalletTokens::<T>::try_mutate(who.clone(), |wal_tokens| -> DispatchResult {
 					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
@@ -714,10 +715,10 @@ pub mod pallet {
 
 					};
 
-					Ok(())
+					Ok(().into())
 				})?;
 
-				Ok(())
+				Ok(().into())
 			}
 
 
@@ -859,6 +860,23 @@ pub mod pallet {
 				Ok(final_reputation)
 			}
 				
+
+
+			// True if the wallet is registered in the "WalletStats" storage.
+			// This always implies that an entry also exists e the 
+			// "WalletTokens" storage.
+			pub fn do_is_wallet_registered(
+				who: T::AccountId,
+			) -> Result<bool, DispatchError> {
+
+				Ok(WalletStats::<T>::contains_key(who))
+			}
+
+
+			//TODO-6
+			fn account_id() -> T::AccountId {
+				<T as Config>::PalletId::get().try_into_account().unwrap()
+			}
 
 
 

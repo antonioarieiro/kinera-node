@@ -1,13 +1,8 @@
 [package]
-name = "pallet-stat-tracker"
-version = "4.0.0-dev"
-description = "FRAME pallet template for defining custom runtime logic."
-authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
-homepage = "https://substrate.io"
+name = "kine-stat-tracker"
+authors = ["Invisible Hand Labs Lda. <andreribeiro@invisiblehandlab.org>"]
 edition = "2021"
-license = "Unlicense"
-publish = false
-repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
+version = "0.1.0"
 
 
 [package.metadata.docs.rs]
@@ -15,18 +10,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive",]}
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-frame-benchmarking = { version = "4.0.0-dev", default-features = false, optional = true, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-frame-support = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-frame-system = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
+codec = { workspace = true, features = ["derive"], default-features = false }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
 
-sp-core = { version = "6.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-sp-io = { version = "6.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
-sp-runtime = { version = "6.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.25" }
+# Frame
+frame-benchmarking = { workspace = true, default-features = false, optional = true }
+frame-support = { workspace = true, default-features = false, optional = true }
+frame-system = { workspace = true, default-features = false, optional = true }
 
-serde = { version = "1.0", features = ["derive"] }
-sp-std = {default-features = false, version = '3.0.0', git = 'https://github.com/paritytech/substrate.git', tag = 'monthly-2021-05'}
+# SP
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
+
+serde = { workspace = true, features = ["derive"] }
+sp-std = {workspace = true, default-features = false}
 
 
 [features]
