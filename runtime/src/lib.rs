@@ -488,9 +488,9 @@ impl pallet_collator_selection::Config for Runtime {
 }
 
 // Configure the pallet template in pallets/template.
-impl pallet_parachain_template::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-}
+// impl kine_template::Config for Runtime {
+// 	type RuntimeEvent = RuntimeEvent;
+// }
 
 
 
@@ -511,6 +511,25 @@ impl kine_stat_tracker::Config for Runtime {
 	type NameStringLimit = WalletNameStringLimit;
 	type PalletId = PalletStatTrackerId;
 }
+
+
+parameter_types! {
+	pub const MaxTags: u32 = 10000;
+	pub const ContentStringLimit: u32 = 1000;
+	pub const CategoryStringLimit: u32 = 100;
+	pub const TagStringLimit: u32 = 100;
+	pub const MaxContentWithTag: u32 = 100000;
+}
+
+impl kine_tags::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+	type MaxTags = MaxTags;
+	type MaxContentWithTag = MaxContentWithTag;
+	type ContentStringLimit = ContentStringLimit;
+	type CategoryStringLimit = CategoryStringLimit;
+	type TagStringLimit = TagStringLimit;
+}
+
 
 
 
@@ -546,8 +565,9 @@ construct_runtime!(
 		MessageQueue: pallet_message_queue = 33,
 
 		// Custom Pallets
-		TemplatePallet: pallet_parachain_template = 50,
+		// TemplatePallet: kine_template = 50,
 		StatTrackerPallet: kine_stat_tracker = 51,
+		TagsPallet: kine_tags = 52,
 	}
 );
 
