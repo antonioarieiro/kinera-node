@@ -497,6 +497,22 @@ impl pallet_collator_selection::Config for Runtime {
 // Configure the custom pallets.
 
 
+// Movie
+parameter_types! {
+	pub const MovieStringLimit: u32 = 50;
+	pub const LinkStringLimit: u32 = 10000;
+	pub const MovieCollateral: u32 = 3000;
+}
+
+impl kine_movie::Config for Runtime{
+    type RuntimeEvent = RuntimeEvent;
+    type InternalMovieId = u32;
+    type StringLimit = MovieStringLimit;
+    type LinkStringLimit = LinkStringLimit;
+    type MovieCollateral = MovieCollateral;
+}
+
+
 // Stat Tracker
 parameter_types! {
 	pub const DefaultReputation: u32 = 15;
@@ -513,6 +529,7 @@ impl kine_stat_tracker::Config for Runtime {
 }
 
 
+// Tags
 parameter_types! {
 	pub const MaxTags: u32 = 10000;
 	pub const ContentStringLimit: u32 = 1000;
@@ -531,6 +548,26 @@ impl kine_tags::Config for Runtime {
 }
 
 
+// Ranking List
+parameter_types!{
+    // pub const PalletFestivalId: PalletId = PalletId(*b"kine/fes");
+    pub const PalletRankingListId : PalletId = PalletId(*b"kine/rnk");
+	pub const RankingStringLimit: u32 = 50;
+	pub const MaxMoviesInList: u32 = 100000;
+	pub const MinimumListDuration: u32 = 3600; // six hours in blocks
+	pub const MaxVotersPerList: u32 = 10000000;
+	pub const MaxListsPerBlock: u32 = 50;
+}
+
+impl kine_ranking_list::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+	type MaxListsPerBlock = MaxListsPerBlock;
+	type MaxVotersPerList = MaxVotersPerList;
+	type MaxMoviesInList = MaxMoviesInList;
+	type MinimumListDuration = MinimumListDuration;
+    type RankingStringLimit = RankingStringLimit;
+    type PalletId = PalletRankingListId;
+}
 
 
 
@@ -568,6 +605,8 @@ construct_runtime!(
 		// TemplatePallet: kine_template = 50,
 		StatTrackerPallet: kine_stat_tracker = 51,
 		TagsPallet: kine_tags = 52,
+		MoviePallet: kine_movie = 53,
+		RankingListPallet: kine_ranking_list = 54,
 	}
 );
 

@@ -29,7 +29,9 @@ scale-info = { version = "2.10.0", default-features = false, features = ["derive
 
 
 # Local
+kine-movie = { path = "pallets/movie", default-features = false }
 kine-tags = { path = "pallets/tags", default-features = false }
+kine-ranking-list = { path = "pallets/ranking-list", default-features = false }
 kine-stat-tracker = { path = "pallets/stat-tracker", default-features = false }
 kine-template = { path = "pallets/template", default-features = false }
 kine-runtime = { path = "runtime", default-features = false }

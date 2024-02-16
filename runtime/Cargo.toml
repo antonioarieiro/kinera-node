@@ -21,9 +21,13 @@ log = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
 smallvec = { workspace = true }
 
+
 # Local
+kine-movie = { workspace = true, default-features = false }
 kine-stat-tracker = { workspace = true, default-features = false }
 kine-tags = { workspace = true, default-features = false }
+kine-ranking-list = { workspace = true, default-features = false }
+
 
 # Substrate
 frame-benchmarking = { workspace = true, default-features = false, optional = true }
@@ -55,6 +59,7 @@ sp-std = { workspace = true, default-features = false }
 sp-transaction-pool = { workspace = true, default-features = false }
 sp-version = { workspace = true, default-features = false }
 
+
 # Polkadot
 pallet-xcm = { workspace = true, default-features = false }
 polkadot-parachain-primitives = { workspace = true, default-features = false }
@@ -62,6 +67,7 @@ polkadot-runtime-common = { workspace = true, default-features = false }
 xcm = { workspace = true, package = "staging-xcm", default-features = false }
 xcm-builder = { workspace = true, package = "staging-xcm-builder", default-features = false }
 xcm-executor = { workspace = true, package = "staging-xcm-executor", default-features = false }
+
 
 # Cumulus
 cumulus-pallet-aura-ext = { workspace = true, default-features = false }
@@ -75,6 +81,7 @@ cumulus-primitives-utility = { workspace = true, default-features = false }
 pallet-collator-selection = { workspace = true, default-features = false }
 parachains-common = { workspace = true, default-features = false }
 parachain-info = { workspace = true, package = "staging-parachain-info", default-features = false }
+
 
 [features]
 default = ["std"]
@@ -96,6 +103,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"log/std",
+	"kine-stat-tracker/std",
 	"pallet-aura/std",
 	"pallet-authorship/std",
 	"pallet-balances/std",
@@ -132,6 +140,7 @@ std = [
 	"xcm/std",
 ]
 
+
 runtime-benchmarks = [
 	"cumulus-pallet-dmp-queue/runtime-benchmarks",
 	"cumulus-pallet-parachain-system/runtime-benchmarks",
@@ -160,6 +169,7 @@ runtime-benchmarks = [
 	"xcm-executor/runtime-benchmarks",
 ]
 
+
 try-runtime = [
 	"cumulus-pallet-aura-ext/try-runtime",
 	"cumulus-pallet-dmp-queue/try-runtime",
@@ -186,5 +196,6 @@ try-runtime = [
 	"polkadot-runtime-common/try-runtime",
 	"sp-runtime/try-runtime",
 ]
+
 
 experimental = ["pallet-aura/experimental"]

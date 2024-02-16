@@ -1,15 +1,14 @@
 use cumulus_primitives_core::ParaId;
 use kine_runtime::{
 	AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT,
-	// DefaultReputation,
-	// CategoryStringLimit,
+	CategoryStringLimit, TagStringLimit, MaxTags, RankingStringLimit
 };
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::{
-	traits::{IdentifyAccount, Verify, BlockNumber},
+	traits::{IdentifyAccount, Verify, BlockNumberProvider},
 	BoundedVec,
 };
 
@@ -17,6 +16,7 @@ use sp_runtime::{
 // use kine_tags::{Config::{CategoryStringLimit}};
 // use kine_tags::{Config};
 // CategoryStringLimit, TagStringLimit, MaxTags,
+
 
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
@@ -201,296 +201,297 @@ fn testnet_genesis(
 	// Movie
 
 	// Default Ranking Lists
-		
-	// let rl_all_time_best: (
-	// 	BoundedVec<u8, RankingStringLimit>,
-	// 	BoundedVec<u8, RankingStringLimit>,
-	// 	BlockNumber,
-	// 	BoundedVec<(
-	// 		BoundedVec<u8, CategoryStringLimit>,
-	// 		// BoundedVec<u8, CategoryStringLimit>,
-	// 		BoundedVec<u8, TagStringLimit>,
-	// 		// BoundedVec<u8, TagStringLimit>,
-	// 	), MaxTags>,
-	// ) = (
-	// 	"All Times, Best Films".as_bytes().to_vec().try_into().unwrap(),
-	// 	"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
-	// 	BlockNumber::from(4800u32),
-	// 	TryInto::try_into(vec![(
-	// 		"Just FUN".as_bytes().to_vec().try_into().unwrap(),
-	// 		"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-	// 	)]).unwrap(),
-	// );
+
+	// let aaa = frame_system::Pallet::<Config>::block_number();
+	// let bbb : BlockNumberFor<T>;
+
+	let rl_all_time_best: (
+		BoundedVec<u8, RankingStringLimit>,
+		BoundedVec<u8, RankingStringLimit>,
+		u64,
+		BoundedVec<(
+			BoundedVec<u8, CategoryStringLimit>,
+			BoundedVec<u8, TagStringLimit>,
+		), MaxTags>,
+	) = (
+		"All Times, Best Films".as_bytes().to_vec().try_into().unwrap(),
+		"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
+		4800u64.into(),
+		TryInto::try_into(vec![(
+			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+		)]).unwrap(),
+	);
 	
-// 	let rl_best_south_america: (
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BlockNumber,
-// 		BoundedVec<(
-// 			BoundedVec<u8, CategoryStringLimit>,
-// 			BoundedVec<u8, TagStringLimit>,
-// 		), MaxTags>,
-// 	) = (
-// 		"Best South America Cinema".as_bytes().to_vec().try_into().unwrap(),
-// 		"The best films from South America.".as_bytes().to_vec().try_into().unwrap(),
-// 		BlockNumber::from(4800u32),
-// 		TryInto::try_into(vec![(
-// 			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
-// 			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-// 		)]).unwrap(),
-// 	);
+	let rl_best_south_america: (
+		BoundedVec<u8, RankingStringLimit>,
+		BoundedVec<u8, RankingStringLimit>,
+		u64,
+		BoundedVec<(
+			BoundedVec<u8, CategoryStringLimit>,
+			BoundedVec<u8, TagStringLimit>,
+		), MaxTags>,
+	) = (
+		"Best South America Cinema".as_bytes().to_vec().try_into().unwrap(),
+		"The best films from South America.".as_bytes().to_vec().try_into().unwrap(),
+		4800u64.into(),
+		TryInto::try_into(vec![(
+			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+		)]).unwrap(),
+	);
 	
-// 	let rl_best_asian_fiction: (
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BlockNumber,
-// 		BoundedVec<(
-// 			BoundedVec<u8, CategoryStringLimit>,
-// 			BoundedVec<u8, TagStringLimit>,
-// 		), MaxTags>,
-// 	) = (
-// 		"Best Asiatic Fiction".as_bytes().to_vec().try_into().unwrap(),
-// 		"The best Asian Fiction movies.".as_bytes().to_vec().try_into().unwrap(),
-// 		BlockNumber::from(4800u32),
-// 		TryInto::try_into(vec![(
-// 			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
-// 			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-// 		)]).unwrap(),
-// 	);
+	let rl_best_asian_fiction: (
+		BoundedVec<u8, RankingStringLimit>,
+		BoundedVec<u8, RankingStringLimit>,
+		u64,
+		BoundedVec<(
+			BoundedVec<u8, CategoryStringLimit>,
+			BoundedVec<u8, TagStringLimit>,
+		), MaxTags>,
+	) = (
+		"Best Asiatic Fiction".as_bytes().to_vec().try_into().unwrap(),
+		"The best Asian Fiction movies.".as_bytes().to_vec().try_into().unwrap(),
+		4800u64.into(),
+		TryInto::try_into(vec![(
+			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+		)]).unwrap(),
+	);
 	
-// 	let rl_best_crypto: (
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BlockNumber,
-// 		BoundedVec<(
-// 			BoundedVec<u8, CategoryStringLimit>,
-// 			BoundedVec<u8, TagStringLimit>,
-// 		), MaxTags>,
-// 	) = (
-// 		"Best Crypto Youtuber/TikTok Channels, Online".as_bytes().to_vec().try_into().unwrap(),
-// 		"The best content regarding Web3 and Crypto.".as_bytes().to_vec().try_into().unwrap(),
-// 		BlockNumber::from(4800u32),
-// 		TryInto::try_into(vec![(
-// 			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
-// 			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-// 		)]).unwrap(),
-// 	);
+	let rl_best_crypto: (
+		BoundedVec<u8, RankingStringLimit>,
+		BoundedVec<u8, RankingStringLimit>,
+		u64,
+		BoundedVec<(
+			BoundedVec<u8, CategoryStringLimit>,
+			BoundedVec<u8, TagStringLimit>,
+		), MaxTags>,
+	) = (
+		"Best Crypto Youtuber/TikTok Channels, Online".as_bytes().to_vec().try_into().unwrap(),
+		"The best content regarding Web3 and Crypto.".as_bytes().to_vec().try_into().unwrap(),
+		4800u64.into(),
+		TryInto::try_into(vec![(
+			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+		)]).unwrap(),
+	);
 	
-// 	let rl_documentaries_and_fiction: (
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BoundedVec<u8, RankingStringLimit>,
-// 		BlockNumber,
-// 		BoundedVec<(
-// 			BoundedVec<u8, CategoryStringLimit>,
-// 			BoundedVec<u8, TagStringLimit>,
-// 		), MaxTags>,
-// 	) = (
-// 		"Documentaries and Fiction, Online".as_bytes().to_vec().try_into().unwrap(),
-// 		"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
-// 		BlockNumber::from(4800u32),
-// 		TryInto::try_into(vec![(
-// 			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
-// 			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-// 		)]).unwrap(),
-// 	);
+	let rl_documentaries_and_fiction: (
+		BoundedVec<u8, RankingStringLimit>,
+		BoundedVec<u8, RankingStringLimit>,
+		u64,
+		BoundedVec<(
+			BoundedVec<u8, CategoryStringLimit>,
+			BoundedVec<u8, TagStringLimit>,
+		), MaxTags>,
+	) = (
+		"Documentaries and Fiction, Online".as_bytes().to_vec().try_into().unwrap(),
+		"The best films on the platform.".as_bytes().to_vec().try_into().unwrap(),
+		4800u64.into(),
+		TryInto::try_into(vec![(
+			"Just FUN".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+		)]).unwrap(),
+	);
 	
-// 	// initialize the vec with the pre-built tuples
-// 	let initial_ranking_lists = vec![
-// 		rl_all_time_best, 
-// 		rl_best_south_america,
-// 		rl_best_asian_fiction,
-// 		rl_best_crypto,
-// 		rl_documentaries_and_fiction,
-// 	];
+	// initialize the vec with the pre-built tuples
+	let initial_ranking_lists = vec![
+		rl_all_time_best, 
+		rl_best_south_america,
+		rl_best_asian_fiction,
+		rl_best_crypto,
+		rl_documentaries_and_fiction,
+	];
 		
 	
 
 
 // // Tags Ranking Lists
 
-// 	let rl_cinema_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Fiction".as_bytes().to_vec().try_into().unwrap(),
-// 			"Science Fiction".as_bytes().to_vec().try_into().unwrap(),
-// 			"Drama".as_bytes().to_vec().try_into().unwrap(),
-// 			"Documentary".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_cinema_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Fiction".as_bytes().to_vec().try_into().unwrap(),
+			"Science Fiction".as_bytes().to_vec().try_into().unwrap(),
+			"Drama".as_bytes().to_vec().try_into().unwrap(),
+			"Documentary".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 
-// 	let rl_stars_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Influencers".as_bytes().to_vec().try_into().unwrap(),
-// 			"Educator".as_bytes().to_vec().try_into().unwrap(),
-// 			"Pivots".as_bytes().to_vec().try_into().unwrap(),
-// 			"Web3".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_stars_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Influencers".as_bytes().to_vec().try_into().unwrap(),
+			"Educator".as_bytes().to_vec().try_into().unwrap(),
+			"Pivots".as_bytes().to_vec().try_into().unwrap(),
+			"Web3".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 
-// 	let rl_just_fun_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Art".as_bytes().to_vec().try_into().unwrap(),
-// 			"Dance".as_bytes().to_vec().try_into().unwrap(),
-// 			"Disasters".as_bytes().to_vec().try_into().unwrap(),
-// 			"Kids".as_bytes().to_vec().try_into().unwrap(),
-// 			"Sports".as_bytes().to_vec().try_into().unwrap(),
-// 			"Products".as_bytes().to_vec().try_into().unwrap(),
-// 			"Professionals".as_bytes().to_vec().try_into().unwrap(),
-// 			"News".as_bytes().to_vec().try_into().unwrap(),
-// 			"Services".as_bytes().to_vec().try_into().unwrap(),
-// 			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_just_fun_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Art".as_bytes().to_vec().try_into().unwrap(),
+			"Dance".as_bytes().to_vec().try_into().unwrap(),
+			"Disasters".as_bytes().to_vec().try_into().unwrap(),
+			"Kids".as_bytes().to_vec().try_into().unwrap(),
+			"Sports".as_bytes().to_vec().try_into().unwrap(),
+			"Products".as_bytes().to_vec().try_into().unwrap(),
+			"Professionals".as_bytes().to_vec().try_into().unwrap(),
+			"News".as_bytes().to_vec().try_into().unwrap(),
+			"Services".as_bytes().to_vec().try_into().unwrap(),
+			"Just FUN Others".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 		
-// 	let rl_we_festivals_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Information".as_bytes().to_vec().try_into().unwrap(),
-// 			"Offbeat Films/Marginal".as_bytes().to_vec().try_into().unwrap(),
-// 			"Experimental Cinema".as_bytes().to_vec().try_into().unwrap(),
-// 			"Video Art".as_bytes().to_vec().try_into().unwrap(),
-// 			"Video Clips".as_bytes().to_vec().try_into().unwrap(),
-// 			"We Festivals Others".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_we_festivals_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Information".as_bytes().to_vec().try_into().unwrap(),
+			"Offbeat Films/Marginal".as_bytes().to_vec().try_into().unwrap(),
+			"Experimental Cinema".as_bytes().to_vec().try_into().unwrap(),
+			"Video Art".as_bytes().to_vec().try_into().unwrap(),
+			"Video Clips".as_bytes().to_vec().try_into().unwrap(),
+			"We Festivals Others".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 		
-// 	let rl_artificial_intelligence_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"AI Drama".as_bytes().to_vec().try_into().unwrap(),
-// 			"AI Documentary".as_bytes().to_vec().try_into().unwrap(),
-// 			"AI Fiction".as_bytes().to_vec().try_into().unwrap(),
-// 			"AI Fake".as_bytes().to_vec().try_into().unwrap(),
-// 			"AI Science Fiction".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_artificial_intelligence_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"AI Drama".as_bytes().to_vec().try_into().unwrap(),
+			"AI Documentary".as_bytes().to_vec().try_into().unwrap(),
+			"AI Fiction".as_bytes().to_vec().try_into().unwrap(),
+			"AI Fake".as_bytes().to_vec().try_into().unwrap(),
+			"AI Science Fiction".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 
-// 	let rl_gaming_streamers_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Action/Adventure".as_bytes().to_vec().try_into().unwrap(),
-// 			"Role-Playing".as_bytes().to_vec().try_into().unwrap(),
-// 			"Strategy".as_bytes().to_vec().try_into().unwrap(),
-// 			"Sports".as_bytes().to_vec().try_into().unwrap(),
-// 			"Puzzle".as_bytes().to_vec().try_into().unwrap(),
-// 			"Simulation".as_bytes().to_vec().try_into().unwrap(),
-// 			"Racing".as_bytes().to_vec().try_into().unwrap(),
-// 			"Fighting".as_bytes().to_vec().try_into().unwrap(),
-// 			"Platformer".as_bytes().to_vec().try_into().unwrap(),
-// 			"MMO (Massive Multiplayer Online)".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-
-
-// // Tags Moderation
-
-// 	let mod_violence_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_discrimination_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_lack_of_consent_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_impersonation_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_terrorism_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_copyright_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_misinformation_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_pornography_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_extreme_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_naming_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
-
-// 	let mod_categorization_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 		= vec![
-// 			"Movie".as_bytes().to_vec().try_into().unwrap(),
-// 			"Festival".as_bytes().to_vec().try_into().unwrap(),
-// 			"RankingList".as_bytes().to_vec().try_into().unwrap(),
-// 	].try_into().unwrap();
+	let rl_gaming_streamers_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Action/Adventure".as_bytes().to_vec().try_into().unwrap(),
+			"Role-Playing".as_bytes().to_vec().try_into().unwrap(),
+			"Strategy".as_bytes().to_vec().try_into().unwrap(),
+			"Sports".as_bytes().to_vec().try_into().unwrap(),
+			"Puzzle".as_bytes().to_vec().try_into().unwrap(),
+			"Simulation".as_bytes().to_vec().try_into().unwrap(),
+			"Racing".as_bytes().to_vec().try_into().unwrap(),
+			"Fighting".as_bytes().to_vec().try_into().unwrap(),
+			"Platformer".as_bytes().to_vec().try_into().unwrap(),
+			"MMO (Massive Multiplayer Online)".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 
 
-// 	// setup the final map with all categories and tags by type
-// 	let initial_categories_and_tags: Vec <(
-// 		(BoundedVec<u8, CategoryStringLimit>, BoundedVec<u8, CategoryStringLimit>),
-// 		BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
-// 	)> = vec![
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags.clone()),
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags.clone()),
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags.clone()),
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags.clone()),
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags.clone()),
-// 		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags.clone()),
 
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags.clone()),
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags.clone()),
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags.clone()),
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags.clone()),
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags.clone()),
-// 		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags.clone()),
+// Tags Moderation
 
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags),
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags),
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags),
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags),
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags),
-// 		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags),
+	let mod_violence_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
 
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Violence".as_bytes().to_vec().try_into().unwrap()), mod_violence_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Discrimination".as_bytes().to_vec().try_into().unwrap()), mod_discrimination_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "LackOfConsent".as_bytes().to_vec().try_into().unwrap()), mod_lack_of_consent_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Impersonation".as_bytes().to_vec().try_into().unwrap()), mod_impersonation_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Terrorism".as_bytes().to_vec().try_into().unwrap()), mod_terrorism_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Copyright".as_bytes().to_vec().try_into().unwrap()), mod_copyright_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Misinformation".as_bytes().to_vec().try_into().unwrap()), mod_misinformation_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Pornography".as_bytes().to_vec().try_into().unwrap()), mod_pornography_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Extreme".as_bytes().to_vec().try_into().unwrap()), mod_extreme_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Naming".as_bytes().to_vec().try_into().unwrap()), mod_naming_tags),
-// 		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Categorization".as_bytes().to_vec().try_into().unwrap()), mod_categorization_tags),
-// 	];
+	let mod_discrimination_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_lack_of_consent_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_impersonation_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_terrorism_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_copyright_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_misinformation_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_pornography_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_extreme_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_naming_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+	let mod_categorization_tags : BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+		= vec![
+			"Movie".as_bytes().to_vec().try_into().unwrap(),
+			"Festival".as_bytes().to_vec().try_into().unwrap(),
+			"RankingList".as_bytes().to_vec().try_into().unwrap(),
+	].try_into().unwrap();
+
+
+	// setup the final map with all categories and tags by type
+	let initial_categories_and_tags: Vec <(
+		(BoundedVec<u8, CategoryStringLimit>, BoundedVec<u8, CategoryStringLimit>),
+		BoundedVec<BoundedVec<u8, TagStringLimit>, MaxTags>
+	)> = vec![
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags.clone()),
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags.clone()),
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags.clone()),
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags.clone()),
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags.clone()),
+		(("Movie".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags.clone()),
+
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags.clone()),
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags.clone()),
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags.clone()),
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags.clone()),
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags.clone()),
+		(("Festival".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags.clone()),
+
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Cinema".as_bytes().to_vec().try_into().unwrap()), rl_cinema_tags),
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Stars".as_bytes().to_vec().try_into().unwrap()), rl_stars_tags),
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Just FUN".as_bytes().to_vec().try_into().unwrap()), rl_just_fun_tags),
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "We Festivals".as_bytes().to_vec().try_into().unwrap()), rl_we_festivals_tags),
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Artifitial Intelligence".as_bytes().to_vec().try_into().unwrap()), rl_artificial_intelligence_tags),
+		(("Ranking List".as_bytes().to_vec().try_into().unwrap(), "Gaming/Streamers".as_bytes().to_vec().try_into().unwrap()), rl_gaming_streamers_tags),
+
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Violence".as_bytes().to_vec().try_into().unwrap()), mod_violence_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Discrimination".as_bytes().to_vec().try_into().unwrap()), mod_discrimination_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "LackOfConsent".as_bytes().to_vec().try_into().unwrap()), mod_lack_of_consent_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Impersonation".as_bytes().to_vec().try_into().unwrap()), mod_impersonation_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Terrorism".as_bytes().to_vec().try_into().unwrap()), mod_terrorism_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Copyright".as_bytes().to_vec().try_into().unwrap()), mod_copyright_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Misinformation".as_bytes().to_vec().try_into().unwrap()), mod_misinformation_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Pornography".as_bytes().to_vec().try_into().unwrap()), mod_pornography_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Extreme".as_bytes().to_vec().try_into().unwrap()), mod_extreme_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Naming".as_bytes().to_vec().try_into().unwrap()), mod_naming_tags),
+		(("Moderation".as_bytes().to_vec().try_into().unwrap(), "Categorization".as_bytes().to_vec().try_into().unwrap()), mod_categorization_tags),
+	];
 
 
 
@@ -522,8 +523,8 @@ fn testnet_genesis(
 			"safeXcmVersion": Some(SAFE_XCM_VERSION),
 		},
 		"sudo": { "key": Some(root) },
-		// "tags_module": {
-		// 	"category_to_tag_map": initial_categories_and_tags.iter().cloned().map(|x| x).collect();
-		// }
+		"tags_module": {
+			"category_to_tag_map": initial_categories_and_tags.iter().cloned().map(|x| x).collect::<Vec<_>>(),
+		}
 	})
 }

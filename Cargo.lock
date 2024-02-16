@@ -4551,6 +4551,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c33070833c9ee02266356de0c43f723152bd38bd96ddf52c82b3af10c9138b28"
 
 [[package]]
+name = "kine-movie"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "kine-stat-tracker",
+ "kine-tags",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std 8.0.0",
+]
+
+[[package]]
 name = "kine-node"
 version = "0.1.0"
 dependencies = [
@@ -4610,6 +4627,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "kine-ranking-list"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "kine-movie",
+ "kine-stat-tracker",
+ "kine-tags",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "kine-runtime"
 version = "0.1.0"
 dependencies = [
@@ -4629,6 +4665,8 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex-literal",
+ "kine-movie",
+ "kine-ranking-list",
  "kine-stat-tracker",
  "kine-tags",
  "log",
