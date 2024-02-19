@@ -59,10 +59,6 @@ pub mod pallet {
 			use frame_system::pallet_prelude::*;
 
 			use codec::{Decode, Encode, MaxEncodedLen};
-			use sp_std::{
-				collections::btree_map::BTreeMap,
-				vec::Vec,
-			};
 
 		//* Config *//
 
@@ -641,7 +637,7 @@ pub mod pallet {
 
 				match feature_type {
 					FeatureType::RankingList => {
-						let (new_balance, new_imbalance) = 
+						let (_new_balance, new_imbalance) = 
 							Self::do_calculate_imbalance_change(
 								BalanceOf::<T>::from(0u32),
 								new_earned,
@@ -830,9 +826,7 @@ pub mod pallet {
 				is_slash: bool,
 			) -> Result<u32, DispatchError> {
 				
-				let mut final_reputation = 0u32;
-
-				final_reputation = WalletTokens::<T>::try_mutate(who.clone(), |wal_tokens| -> Result<u32, DispatchError> {
+				let final_reputation: u32 = WalletTokens::<T>::try_mutate(who.clone(), |wal_tokens| -> Result<u32, DispatchError> {
 					let wallet_tokens = wal_tokens.as_mut().ok_or(Error::<T>::WalletTokensNotFound)?;
 					let mut current_reputation = wallet_tokens.reputation_moderation;
 

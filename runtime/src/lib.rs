@@ -504,7 +504,7 @@ parameter_types! {
 	pub const MovieCollateral: u32 = 3000;
 }
 
-impl kine_movie::Config for Runtime{
+impl kine_movie::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type InternalMovieId = u32;
     type StringLimit = MovieStringLimit;
@@ -550,7 +550,6 @@ impl kine_tags::Config for Runtime {
 
 // Ranking List
 parameter_types!{
-    // pub const PalletFestivalId: PalletId = PalletId(*b"kine/fes");
     pub const PalletRankingListId : PalletId = PalletId(*b"kine/rnk");
 	pub const RankingStringLimit: u32 = 50;
 	pub const MaxMoviesInList: u32 = 100000;
