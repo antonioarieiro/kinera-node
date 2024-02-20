@@ -24,6 +24,8 @@ smallvec = { workspace = true }
 
 # Local
 kine-movie = { workspace = true, default-features = false }
+kine-festival = { workspace = true, default-features = false }
+kine-moderation = { workspace = true, default-features = false }
 kine-stat-tracker = { workspace = true, default-features = false }
 kine-tags = { workspace = true, default-features = false }
 kine-ranking-list = { workspace = true, default-features = false }
@@ -104,6 +106,8 @@ std = [
 	"frame-try-runtime?/std",
 	"log/std",
 	"kine-stat-tracker/std",
+	"kine-festival/std",
+	"kine-moderation/std",
 	"pallet-aura/std",
 	"pallet-authorship/std",
 	"pallet-balances/std",

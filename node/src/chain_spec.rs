@@ -523,8 +523,8 @@ fn testnet_genesis(
 			"safeXcmVersion": Some(SAFE_XCM_VERSION),
 		},
 		"sudo": { "key": Some(root) },
-		"tags_module": {
-			"category_to_tag_map": initial_categories_and_tags.iter().cloned().map(|x| x).collect::<Vec<_>>(),
-		}
+		// "tags_module": {
+		// 	"category_to_tag_map": initial_categories_and_tags.iter().cloned().map(|x| x).collect::<Vec<_>>(),
+		// }
 	})
 }

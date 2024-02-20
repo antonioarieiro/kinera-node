@@ -497,6 +497,39 @@ impl pallet_collator_selection::Config for Runtime {
 // Configure the custom pallets.
 
 
+// Moderation
+
+parameter_types! {
+	pub const ReportJustificationLimit: u32 = 250;
+	pub const MaxReportsByModerator: u32 = 3;
+	pub const TotalTierOneModerators: u32 = 3;
+	pub const MaxReportsByTier: u32 = 23;
+	pub const MinimumReputationForSeniorship: u32 = 30;
+	pub const MinimumReputationForModeration: u32 = 10;
+	pub const MinimumTokensForModeration: u32 = 10000;
+	pub const PalletModerationId: PalletId = PalletId(*b"ModStash");
+}
+
+impl kine_moderation::Config for Runtime{
+    type RuntimeEvent = RuntimeEvent;
+    
+	type JustificationLimit = ReportJustificationLimit;
+    
+	type ContentId = u32;
+	type MaxReportsByModerator = MaxReportsByModerator;
+	type TotalTierOneModerators = TotalTierOneModerators;
+	type MaxReportsByTier = MaxReportsByTier;
+	
+	type MinimumReputationForSeniorship = MinimumReputationForSeniorship;
+	type MinimumReputationForModeration = MinimumReputationForModeration;
+	type MinimumTokensForModeration = MinimumTokensForModeration;
+	type MovieCollateral = MovieCollateral;
+
+	type PalletId = PalletModerationId;
+}
+
+
+
 // Movie
 parameter_types! {
 	pub const MovieStringLimit: u32 = 50;
@@ -510,6 +543,30 @@ impl kine_movie::Config for Runtime {
     type StringLimit = MovieStringLimit;
     type LinkStringLimit = LinkStringLimit;
     type MovieCollateral = MovieCollateral;
+}
+
+// Festival
+parameter_types! {
+	pub const DescStringLimit: u32 = 1000;
+	pub const MaxMoviesInFest: u32 = 1000;
+	pub const MaxOwnedFestivals: u32 = 50000;
+	pub const MinFesBlockDuration: u32 = 1; // prev 3600
+	pub const FestBlockSafetyMargin: u32 = 1; // prev 10
+	pub const MaxFestivalsPerBlock: u32 = 500;
+	pub const MaxVotes: u32 = 100000;
+	pub const PalletFestivalId: PalletId = PalletId(*b"FesStash");
+}
+
+impl kine_festival::Config for Runtime{
+    type RuntimeEvent = RuntimeEvent;
+	type FestivalId = u32;
+	type MaxMoviesInFest = MaxMoviesInFest;
+	type MaxOwnedFestivals = MaxOwnedFestivals;
+	type MinFesBlockDuration = MinFesBlockDuration;
+	type MaxFestivalsPerBlock = MaxFestivalsPerBlock;
+	type MaxVotes = MaxVotes;
+	type FestBlockSafetyMargin = FestBlockSafetyMargin;
+	type PalletId = PalletFestivalId;
 }
 
 
@@ -606,6 +663,8 @@ construct_runtime!(
 		TagsPallet: kine_tags = 52,
 		MoviePallet: kine_movie = 53,
 		RankingListPallet: kine_ranking_list = 54,
+		FestivalPallet: kine_festival = 55,
+		ModerationPallet: kine_moderation = 56,
 	}
 );
 
